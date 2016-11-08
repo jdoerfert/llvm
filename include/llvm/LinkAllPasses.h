@@ -27,6 +27,7 @@
 #include "llvm/Analysis/IntervalPartition.h"
 #include "llvm/Analysis/Lint.h"
 #include "llvm/Analysis/Passes.h"
+#include "llvm/Analysis/PolyhedralValueInfo.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/RegionPass.h"
 #include "llvm/Analysis/RegionPrinter.h"
@@ -142,6 +143,9 @@ namespace {
       (void) llvm::createPromoteMemoryToRegisterPass();
       (void) llvm::createDemoteRegisterToMemoryPass();
       (void) llvm::createPruneEHPass();
+      (void) llvm::createPolyhedralValueInfoWrapperPass();
+      (void) llvm::createPolyhedralAccessInfoWrapperPass();
+      (void) llvm::createPolyhedralDependenceInfoWrapperPass();
       (void) llvm::createPostDomOnlyPrinterPass();
       (void) llvm::createPostDomPrinterPass();
       (void) llvm::createPostDomOnlyViewerPass();

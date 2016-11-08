@@ -79,6 +79,10 @@ namespace llvm {
   //
   FunctionPass *createRegionInfoPass();
 
+  FunctionPass *createPolyhedralValueInfoWrapperPass();
+  FunctionPass *createPolyhedralAccessInfoWrapperPass();
+  FunctionPass *createPolyhedralDependenceInfoWrapperPass();
+
   // Print module-level debug info metadata in human-readable form.
   ModulePass *createModuleDebugInfoPrinterPass();
 
