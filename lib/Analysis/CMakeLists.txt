@@ -66,10 +66,11 @@ add_llvm_library(LLVMAnalysis
   OptimizationRemarkEmitter.cpp
   OrderedBasicBlock.cpp
   PHITransAddr.cpp
-  PolyhedralValueInfo.cpp
   PolyhedralAccessInfo.cpp
   PolyhedralDependenceInfo.cpp
   PolyhedralExpressionBuilder.cpp
+  PolyhedralValueInfo.cpp
+  PolyhedralUtils.cpp
   PostDominators.cpp
   ProfileSummaryInfo.cpp
   PtrUseVisitor.cpp

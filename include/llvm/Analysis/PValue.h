@@ -38,6 +38,10 @@ struct isl_pw_aff;
 namespace llvm {
 class PVAff;
 
+template <typename PVType> struct PVLess {
+  bool operator()(const PVType &lhs, const PVType &rhs) const;
+};
+
 class PVBase {
   friend class PVAff;
   friend class PVMap;
@@ -108,8 +112,11 @@ public:
   std::string str() const;
 
   operator bool() const { return Obj != nullptr; }
-};
 
+  bool operator<(const PVId &Other) const;
+
+  friend class PVLess<PVId>;
+};
 
 class PVSet : public PVBase {
   friend class PVAff;
@@ -261,11 +268,16 @@ public:
   PVMap &addToOutputDimension(const PVMap &Other, unsigned Dim);
 
   int getParameterPosition(const PVId &Id) const;
+  void eliminateParameter(unsigned Pos);
   void eliminateParameter(const PVId &Id);
 
   PVSet getParameterSet() const;
 
+  void equateParameters(unsigned Pos0, unsigned Pos1);
+  void equateParameters(const PVId &Id0, const PVId &Id1);
+
   PVId getParameter(unsigned No) const;
+  PVMap &setParameter(unsigned No, const PVId &Id);
 
   PVId getInputId() const;
   PVId getOutputId() const;
@@ -283,6 +295,10 @@ public:
 
   PVMap &union_add(const PVMap &PM);
   PVMap &floordiv(int64_t V);
+
+  PVMap &preimage(const PVAff &PWA, bool Range = true);
+  PVMap &preimageDomain(const PVAff &PWA);
+  PVMap &preimageRange(const PVAff &PWA);
 
   std::string str() const;
 };
@@ -365,7 +381,12 @@ public:
 
   PVAff &fixParamDim(unsigned Dim, int64_t Value);
   PVAff &fixInputDim(unsigned Dim, int64_t Value);
+  PVAff &equateInputDim(unsigned Dim, const PVId &Id);
   PVAff &setInputLowerBound(unsigned Dim, int64_t Value);
+
+  PVAff &setInputId(const PVId &Id);
+  PVAff &setOutputId(const PVId &Id);
+
   PVAff &floordiv(int64_t V);
 
   PVAff &maxInLastInputDims(unsigned Dims);
@@ -413,6 +434,16 @@ public:
   static CombinatorFn getCombinatorFn(IslCombinatorFn Fn);
 
   std::string str() const;
+};
+
+template<typename PVType>
+struct PVRewriter {
+  virtual PVType rewrite(const PVType &Obj) {
+    PVType Copy(Obj);
+    rewrite(Copy);
+    return Copy;
+  };
+  virtual void rewrite(PVType &Obj) {};
 };
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const PVBase &PV);

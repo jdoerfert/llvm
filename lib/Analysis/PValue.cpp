@@ -146,6 +146,15 @@ std::string PVId::str() const {
   return Result;
 }
 
+bool PVId::operator<(const PVId &Other) const {
+  return isl_id_get_hash(Obj) < isl_id_get_hash(Other);
+}
+
+template <>
+bool PVLess<PVId>::operator()(const PVId &lhs, const PVId &rhs) const {
+  return isl_id_get_hash(lhs) < isl_id_get_hash(rhs);
+}
+
 /* -------------------- PVSet ------------------------ */
 
 PVSet::PVSet(isl_set *S) : Obj(S) {}
@@ -466,6 +475,7 @@ PVSet &PVSet::setInputLowerBound(unsigned Dim, int64_t Value) {
 
 PVSet &PVSet::preimage(const PVAff &PWA) {
   Obj = isl_set_preimage_pw_multi_aff(Obj, isl_pw_multi_aff_from_pw_aff(PWA));
+  dropUnusedParameters();
   return *this;
 }
 
@@ -642,6 +652,10 @@ int PVMap::getParameterPosition(const PVId &Id) const {
 void PVMap::eliminateParameter(const PVId &Id) {
   int Pos = getParameterPosition(Id);
   assert(Pos >= 0);
+  return eliminateParameter(Pos);
+}
+
+void PVMap::eliminateParameter(unsigned Pos) {
   Obj = isl_map_project_out(Obj, isl_dim_param, Pos, 1);
 }
 
@@ -649,8 +663,26 @@ PVSet PVMap::getParameterSet() const {
   return isl_map_params(isl_map_copy(Obj));
 }
 
+void PVMap::equateParameters(unsigned Pos0, unsigned Pos1) {
+  assert(Pos0 < getNumParameters() && Pos1 < getNumParameters());
+  Obj = isl_map_equate(Obj, isl_dim_param, Pos0, isl_dim_param, Pos1);
+}
+
+void PVMap::equateParameters(const PVId &Id0, const PVId &Id1) {
+  int Pos0 = getParameterPosition(Id0);
+  int Pos1 = getParameterPosition(Id1);
+  if (Pos0 < 0 || Pos1 < 0)
+    return;
+  return equateParameters(Pos0, Pos1);
+}
+
 PVId PVMap::getParameter(unsigned No) const {
   return PVId(isl_map_get_dim_id(Obj, isl_dim_param, No));
+}
+
+PVMap &PVMap::setParameter(unsigned No, const PVId &Id) {
+  Obj = isl_map_set_dim_id(Obj, isl_dim_param, No, Id);
+  return *this;
 }
 
 PVId PVMap::getInputId() const {
@@ -982,11 +1014,35 @@ PVAff &PVAff::fixInputDim(unsigned Dim, int64_t Value) {
   return *this;
 }
 
+PVAff &PVAff::equateInputDim(unsigned Dim, const PVId &Id) {
+  int Pos = getParameterPosition(Id);
+  if (Pos < 0) {
+    Pos = getNumParameters();
+    Obj = isl_pw_aff_add_dims(Obj, isl_dim_param, 1);
+    Obj = isl_pw_aff_set_dim_id(Obj, isl_dim_param, Pos, Id);
+  }
+  assert(Pos >= 0);
+  PVSet Dom = getDomain();
+  Dom.equateInputDim(Dim, Id);
+  intersectDomain(Dom);
+  return *this;
+}
+
 PVAff &PVAff::setInputLowerBound(unsigned Dim,
                                  int64_t Value) {
   auto *Dom = isl_pw_aff_domain(isl_pw_aff_copy(Obj));
   Dom = isl_set_lower_bound_si(Dom, isl_dim_set, Dim, Value);
   Obj = isl_pw_aff_intersect_domain(Obj, Dom);
+  return *this;
+}
+
+PVAff &PVAff::setInputId(const PVId &Id) {
+  Obj = isl_pw_aff_set_tuple_id(Obj, isl_dim_in, Id);
+  return *this;
+}
+
+PVAff &PVAff::setOutputId(const PVId &Id) {
+  Obj = isl_pw_aff_set_tuple_id(Obj, isl_dim_out, Id);
   return *this;
 }
 
@@ -1285,6 +1341,28 @@ PVAff PVAff::getBackEdgeTakenCountFromDomain(const PVSet &Dom) {
                           isl_pw_aff_zero_set(isl_pw_aff_copy(MinPWA))));
   isl_pw_aff_free(MinPWA);
   return PVAff(MaxPWA);
+}
+
+PVMap &PVMap::preimage(const PVAff &PWA, bool Range) {
+  if (Range)
+    return preimageRange(PWA);
+  return preimageDomain(PWA);
+}
+
+PVMap &PVMap::preimageDomain(const PVAff &PWA) {
+  isl_pw_multi_aff *PWMA =  isl_pw_multi_aff_from_pw_aff(PWA);
+  PWMA = isl_pw_multi_aff_set_tuple_id(PWMA, isl_dim_in, getInputId());
+  Obj = isl_map_preimage_domain_pw_multi_aff(Obj, PWMA);
+  dropUnusedParameters();
+  return *this;
+}
+
+PVMap &PVMap::preimageRange(const PVAff &PWA) {
+  isl_pw_multi_aff *PWMA =  isl_pw_multi_aff_from_pw_aff(PWA);
+  PWMA = isl_pw_multi_aff_set_tuple_id(PWMA, isl_dim_out, getOutputId());
+  Obj = isl_map_preimage_range_pw_multi_aff(Obj, PWMA);
+  dropUnusedParameters();
+  return *this;
 }
 
 std::string PVAff::str() const {

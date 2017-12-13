@@ -339,6 +339,16 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
   }
 }
 
+void PACCSummary::rewrite(PVRewriter<PVMap> &Rewriter) {
+  for (auto AIt : *this) {
+    ArrayInfo *AI = AIt.second;
+    Rewriter.rewrite(AI->MayWriteMap);
+    Rewriter.rewrite(AI->MustWriteMap);
+    Rewriter.rewrite(AI->MayReadMap);
+    Rewriter.rewrite(AI->MustReadMap);
+  }
+}
+
 void PACCSummary::print(raw_ostream &OS, PolyhedralValueInfo *PVI) const {
   OS << "\nPACC summary\n";
 
@@ -358,8 +368,8 @@ void PACCSummary::print(raw_ostream &OS, PolyhedralValueInfo *PVI) const {
        It++)
     OS << "\t - " << *It << "\n";
 
-  SmallPtrSet<Value *, 8> ParameterSet;
-  SmallVector<Value *, 8> ParameterVector;
+  std::set<PVId> ParameterSet;
+  SmallVector<PVId, 8> ParameterVector;
   OS << "Array infos:\n";
   for (auto AIt : *this) {
     Value *BasePointer = AIt.first;
@@ -392,10 +402,13 @@ void PACCSummary::print(raw_ostream &OS, PolyhedralValueInfo *PVI) const {
 
   OS << "Referenced parameters:\n";
   if (PVI) {
-    SmallPtrSet<Value *, 8> ParameterWorklist(ParameterSet);
+    std::set<PVId> ParameterWorklist(ParameterSet);
     while (!ParameterWorklist.empty()) {
-      Value *Parameter = *ParameterWorklist.begin();
-      ParameterWorklist.erase(Parameter);
+      const PVId &ParameterId = *ParameterWorklist.begin();
+      ParameterWorklist.erase(ParameterId);
+      if (!ParameterId.getPayload())
+        continue;
+      Value *Parameter = ParameterId.getPayloadAs<Value *>();
       auto *ParameterInst = dyn_cast<Instruction>(Parameter);
       if (!ParameterInst)
         continue;
@@ -403,22 +416,30 @@ void PACCSummary::print(raw_ostream &OS, PolyhedralValueInfo *PVI) const {
         const PEXP *ParameterPE = PVI->getPEXP(ParameterOperand, Scope);
         ParameterVector.clear();
         PVI->getParameters(ParameterPE, ParameterVector);
-        for (Value *NewParameter : ParameterVector) {
-          if (!ParameterSet.insert(NewParameter).second)
+        for (const PVId NewParameterId : ParameterVector) {
+          if (!ParameterSet.insert(NewParameterId).second)
             continue;
-          ParameterWorklist.insert(NewParameter);
+          ParameterWorklist.insert(NewParameterId);
         }
       }
     }
   }
-  for (Value *Parameter : ParameterSet) {
+  for (const PVId &ParameterId : ParameterSet) {
+    if (!ParameterId.getPayload()) {
+      OS << "\t\t - " << ParameterId.str() << " (P)\n";
+      continue;
+    }
+
+    Value *Parameter = ParameterId.getPayloadAs<Value *>();
     if (auto *ArgumentParameter = dyn_cast<Argument>(Parameter)) {
-      OS << "\t\t - argument (" << ArgumentParameter->getArgNo()
-         << "):  " << *Parameter << "\n";
+      OS << "\t\t - " << ParameterId.str() << " (A)("
+         << ArgumentParameter->getArgNo() << "):  " << *Parameter << "\n";
     } else if (isa<Instruction>(Parameter)) {
-      OS << "\t\t -  instruction:" << *Parameter << "\n";
+      OS << "\t\t - " << ParameterId.str() << " (I):" << *Parameter << "\n";
+    } else if (isa<Function>(Parameter)) {
+      OS << "\t\t - " << ParameterId.str() << " (F)\n";
     } else {
-      OS << "\t\t - unknown: " << *Parameter << "\n";
+      OS << "\t\t - " << ParameterId.str() << " (U): " << *Parameter << "\n";
     }
   }
 }
@@ -487,7 +508,7 @@ const PACC *PolyhedralAccessInfo::getAsAccess(Instruction *Inst, Loop *Scope) {
   return nullptr;
 }
 
-const PACCSummary *
+PACCSummary *
 PolyhedralAccessInfo::getAccessSummary(Function &F,
                                        PACCSummary::SummaryScopeKind Kind) {
   SmallVector<BasicBlock *, 32> Blocks;
@@ -497,7 +518,7 @@ PolyhedralAccessInfo::getAccessSummary(Function &F,
   return getAccessSummary(Blocks, Kind);
 }
 
-const PACCSummary *
+PACCSummary *
 PolyhedralAccessInfo::getAccessSummary(ArrayRef<BasicBlock *> Blocks,
                                        PACCSummary::SummaryScopeKind Kind,
                                        Loop *Scope) {
@@ -573,7 +594,9 @@ bool PolyhedralAccessInfoWrapperPass::runOnFunction(Function &F) {
 
 void PolyhedralAccessInfoWrapperPass::print(raw_ostream &OS,
                                             const Module *) const {
-  const PACCSummary *PS = PAI->getAccessSummary(*F, PACCSummary::SSK_COMPLETE);
+  PACCSummary *PS = PAI->getAccessSummary(*F, PACCSummary::SSK_COMPLETE);
+  NVVMRewriter<PVMap, /* UseGlobalIdx */ true> CudaRewriter;
+  PS->rewrite(CudaRewriter);
   PS->print(OS, &PAI->getPolyhedralValueInfo());
 }
 

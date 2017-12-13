@@ -1,0 +1,342 @@
+#!/usr/bin/python
+import sys, os, subprocess, random
+
+###############################################################################
+############################# Helper functions ################################
+###############################################################################
+def center(string, columns = 80):
+  length = len(string)
+  return "%s%s%s" % (" " * int((columns + 1 - length) / 2),
+                     string,
+                     " " * int((columns + 0 - length) / 2))
+
+def exists(full_path):
+  return full_path and os.access(full_path, os.X_OK)
+
+def no_ext(filename):
+  return os.path.splitext(filename)[0]
+
+def which(program):
+  path = os.getenv('PATH')
+  if not path:
+    return None
+  for sub_path in path.split(':'):
+    full_path = os.path.join(sub_path, program)
+    if exists(full_path):
+      return full_path
+  return None
+
+def call(program, arguments):
+  try:
+    proc = subprocess.Popen([program] + arguments, stdout=sys.stdout, stderr=sys.stderr)
+    retcode = proc.wait()
+    if retcode:
+      sys.stderr.write("\nERROR:\n------\n")
+      sys.stderr.write("Got return code %s while executing:\n  %s %s\n\n" % (retcode, program, " ".join(arguments)))
+    return retcode
+  except Exception as e:
+    sys.stderr.write("\nERROR:\n------\n")
+    sys.stderr.write("Got an exception while executing:\n  %s %s\n%s\n\n" % (program, " ".join(arguments), repr(e)))
+    return 254
+
+###############################################################################
+############################# Global constants ################################
+###############################################################################
+
+# Enable DEBUG mode
+DEBUG = False
+
+# The name of this 'compiler'
+NAME = "LLVM-Link-All"
+
+
+# The environment variables with functions to derive their default values
+env_variables = {
+    'CLANG': ((lambda : which('clang')), True),
+    'CLANG++': ((lambda : which('clang++')), True),
+    'LLVM_LINK': ((lambda : which('llvm-link')), True),
+  }
+
+# Flag replacements
+flag_replacements = {
+    # '-O3' : ' -O3',
+    #'-g' : '',
+    }
+
+
+###############################################################################
+
+
+if DEBUG:
+  print ("\n%s" % (center(NAME)))
+
+if DEBUG:
+  print ("\n Check environment variables:")
+
+variables = {}
+for variable, default_pair in env_variables.items():
+  val_inv, def_inv = "", ""
+  default_fn, is_path = default_pair
+  default = default_fn()
+  value = os.getenv(variable, default)
+
+  if is_path:
+    if not exists(default):
+      def_inv = " INVALID!"
+    if not exists(value):
+      val_inv = " INVALID!"
+
+  variables[variable] = value
+  if DEBUG:
+    print ("   %-25s := %s%s \t\t(default: %s%s)" % (variable, value, val_inv, default, def_inv))
+
+COMPILER = 'CLANG++' if sys.argv[0].endswith('++') else 'CLANG'
+
+for variable, value in variables.items():
+  if env_variables[variable][1] and not exists(value):
+    sys.stderr.write("\nERROR:\n------\n")
+    sys.stderr.write("The executable '%s' was not found! " % variable.lower())
+    sys.stderr.write("The determined value was '%s'\n" % value)
+    sys.stderr.write("Either put it on the 'PATH' or set the environment ")
+    sys.stderr.write("variable '%s' pointing to the executable.\n\n" % variable)
+    sys.exit(1)
+
+arguments = sys.argv[1:]
+if DEBUG:
+  print ("\n Start parsing the command line:")
+  print ("   '%s'" % (" ".join(arguments)))
+
+
+if '/dev/null' in arguments or 'conftest.c' in arguments or '--version' in arguments or 'CMakeTmp' in arguments or 'testCCompiler.c' in arguments:
+  sys.stderr.write("\nCONFIGURE IS RUNNING:\n------\n")
+  sys.stderr.write("Call %s (%s) %s\n" % (COMPILER, variables[COMPILER], ' '.join(arguments)))
+  retcode = call(variables[COMPILER], arguments)
+  if DEBUG:
+    sys.stderr.write("     Retcode: %i\n" % retcode)
+  sys.exit(retcode)
+
+output_name = None
+input_names = []
+output_name_add_ending = False
+output_kind = None
+
+
+if DEBUG:
+  print ("\n   Test for input files:")
+
+skip_next   = False
+for argument in arguments:
+  if skip_next:
+    skip_next = False
+  elif '-o' == argument:
+    skip_next = True
+  elif '-I' == argument:
+    skip_next = True
+  elif not argument.startswith('-'):
+    input_names.append(argument)
+
+if DEBUG:
+  print ("     Input files are '%s'" % (' '.join(input_names)))
+
+if not input_names:
+  sys.stderr.write("\nERROR:\n------\n")
+  sys.stderr.write("No input files found\n\n")
+  sys.stderr.write("Call %s (%s)\n" % (COMPILER, variables[COMPILER]))
+  retcode = call(variables[COMPILER], arguments)
+  if DEBUG:
+    print ("     Retcode: %i" % retcode)
+  sys.exit(retcode)
+
+IsResponseFile = False
+if len(input_names) == 1 and input_names[0].startswith("@"):
+    IsResponseFile = True
+    if DEBUG:
+        print ("\n   Got a response file: " + input_names[0])
+
+
+if DEBUG:
+  print ("\n   Test for output file:")
+
+assert(arguments.count('-o') < 2 and "Multiple occurrences of '-o'!")
+if '-o' in arguments:
+  index = arguments.index('-o')
+  assert(len(arguments) > index + 1 and "-o was not followed by any value!")
+  output_name = arguments[index + 1]
+else:
+  if len(input_names) > 1 or IsResponseFile:
+    output_name = 'a.out'
+  else:
+    output_name = input_names[0]
+    output_name_add_ending = True
+
+if DEBUG:
+  print ("     Output file is '%s'" % (output_name))
+  if output_name_add_ending:
+    print ("     -- but the ending might need adjustment!")
+
+if not output_name:
+  sys.stderr.write("\nERROR:\n------\n")
+  sys.stderr.write("No output file found\n\n")
+  sys.stderr.write("Call %s (%s)\n" % (COMPILER, variables[COMPILER]))
+  retcode = call(variables[COMPILER], arguments)
+  if DEBUG:
+    print ("     Retcode: %i" % retcode)
+  sys.exit(retcode)
+
+
+if DEBUG:
+  print ("\n   Test for output kind:")
+
+if '-c' in arguments:
+  if DEBUG:
+    print ("     An intermediate should be emitted!")
+  if '-emit-llvm' in arguments:
+    if DEBUG:
+      print ("     It is already LLVM-IR ('-emit-llvm' is used)!")
+  else:
+    arguments.append('-emit-llvm')
+    if DEBUG:
+      print ("     Add '-emit-llvm' to emit LLVM-IR!")
+  output_kind = 'ir'
+  arguments += ['-mllvm', '-disable-llvm-optzns']
+  if output_name.endswith('.o'):
+      new_output_name = output_name[:-2] + '.bc'
+      arguments[arguments.index(output_name)] = new_output_name
+      output_name = new_output_name
+      if DEBUG:
+        print ("       Change output name to '%s'!" % (new_output_name))
+  # if output_name_add_ending:
+      # if '.' in output_name:
+        # arguments += ['-o', '%s.o' % output_name[:output_name.index('.')]]
+      # else:
+        # arguments += ['-o', '%s.o' % output_name]
+else:
+  if '-emit-llvm' in arguments:
+    if DEBUG:
+      print ("     It is already LLVM-IR ('-emit-llvm' is used)!")
+    output_kind = 'ir'
+    arguments += ['-mllvm', '-disable-llvm-optzns']
+  else:
+    if DEBUG:
+      print ("     An executable is emitted!")
+    output_kind = 'ex'
+    if output_name_add_ending:
+      new_output_name = 'a.out'
+      arguments[arguments.index(output_name)] = new_output_name
+      output_name = new_output_name
+      if DEBUG:
+        print ("       Change output name to '%s'!" % (new_output_name))
+
+
+if DEBUG:
+  print ("\n   Replace common flags:")
+
+original_arguments = arguments[:]
+no_replacements = 0
+for index in range(len(arguments)):
+  argument = arguments[index]
+  if argument in flag_replacements:
+    new_argument = flag_replacements[argument]
+    arguments[index] = ''
+    arguments += new_argument.split(" ")
+    no_replacements += 1
+    if DEBUG:
+      print ("     Replace '%s' by '%s'!" % (argument, new_argument))
+
+if DEBUG and no_replacements == 0:
+  print ("     Nothing found to replace!")
+
+if output_kind == 'ir':
+
+  clang_arguments = arguments
+  if DEBUG:
+    print ("\n   Initiate %s (%s):" % (COMPILER, variables[COMPILER]))
+    print ("     Options: '%s'" % ' '.join(clang_arguments))
+  retcode = call(variables[COMPILER], clang_arguments)
+  if DEBUG:
+    print ("     Retcode: %i" % retcode)
+
+elif output_kind == 'ex' and len(input_names) == 1 and not IsResponseFile:
+  if input_names[0].endswith('.o'):
+    arguments[arguments.index(input_names[0])] = input_names[0][:-2] + ".bc"
+    if DEBUG:
+        print ("\n   Initiate %s (%s):" % (COMPILER, variables[COMPILER]))
+        print ("     Options: '%s'" % ' '.join(arguments))
+    retcode = call(variables[COMPILER], arguments)
+    if DEBUG:
+        print ("     Retcode: %i" % retcode)
+  else:
+    clang_output_name = no_ext(output_name) + '.bc'
+    clang_arguments = arguments + ['-emit-llvm', '-c']
+    clang_arguments[clang_arguments.index(output_name)] = clang_output_name
+    if DEBUG:
+        print ("\n   Initiate %s (%s):" % (COMPILER, variables[COMPILER]))
+        print ("     Options: '%s'" % ' '.join(clang_arguments))
+    retcode = call(variables[COMPILER], clang_arguments)
+    if DEBUG:
+        print ("     Retcode: %i" % retcode)
+    arguments[arguments.index(input_names[0])] = clang_output_name
+    if DEBUG:
+        print ("\n   Initiate %s (%s):" % (COMPILER, variables[COMPILER]))
+        print ("     Options: '%s'" % ' '.join(arguments))
+    retcode = call(variables[COMPILER], arguments)
+    if DEBUG:
+        print ("     Retcode: %i" % retcode)
+
+elif output_kind == 'ex' and len(input_names) > 1 or IsResponseFile:
+
+  ex_arguments = original_arguments
+  linked_output_name = no_ext(output_name) + '-linked.bc'
+  link_arguments = []
+  if IsResponseFile:
+    ex_arguments.remove(input_names[0])
+    link_arguments.append(input_names[0])
+    retcode = call("sed", ["--in-place=.orig",
+                           "-e", "s@\\.o[[:blank:]]@\\.bc @g",
+                           "-e", "s@\\.o$@\\.bc@", input_names[0][1:]])
+    if DEBUG:
+        print ("     Retcode: %i" % retcode)
+  else:
+    for name in input_names:
+        ex_arguments.remove(name)
+        if name.endswith('.o'):
+            link_arguments.append(name[:-2] + ".bc")
+        else:
+            link_arguments.append(name)
+  link_arguments += ['-o', linked_output_name]
+  if DEBUG:
+    print ("\n   Initiate LLVM_LINK (%s):" % variables['LLVM_LINK'])
+    print ("     Options: '%s'" % ' '.join(link_arguments))
+  retcode = call(variables['LLVM_LINK'], link_arguments)
+  if DEBUG:
+    print ("     Retcode: %i" % retcode)
+
+  ex_arguments.append(linked_output_name)
+  if os.getenv('LINK_CFLAGS'):
+      if DEBUG:
+          print("    Got LINK_CFLAGS: ", os.getenv('LINK_CFLAGS'))
+      if ' ' in os.getenv('LINK_CFLAGS'):
+        ex_arguments += os.getenv('LINK_CFLAGS').split(' ')
+      else:
+        ex_arguments.append(os.getenv('LINK_CFLAGS'))
+  if DEBUG:
+    print ("\n   Initiate %s (%s):" % (COMPILER, variables[COMPILER]))
+    print ("     Options: '%s'" % ' '.join(ex_arguments))
+  retcode = call(variables[COMPILER], ex_arguments)
+  if DEBUG:
+    print ("     Retcode: %i" % retcode)
+  if int(retcode) is not 0:
+    i  = random.randint(0, 1000)
+    fn = '/tmp/failure%i' % (i)
+    if DEBUG:
+        print("WRITE FAILURE DETAILS TO %s" % fn)
+    fd = open(fn, 'w')
+    fd.write('cd %s ; %s %s\n' % (os.path.abspath(os.curdir), variables[COMPILER],' '.join(ex_arguments)))
+    fd.close()
+else:
+  assert(False and "Unknown output kind" and output_kind)
+
+sys.exit(retcode)
+
+
+# vim: set ft=python

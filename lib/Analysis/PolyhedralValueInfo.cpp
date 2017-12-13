@@ -54,8 +54,6 @@ PEXP *PEXP::setDomain(const PVSet &Domain, bool Overwrite) {
     return invalidate();
   }
 
-  errs() << "ID: " << InvalidDomain << " KD: " << KnownDomain << "\n";
-
   setKind(PEXP::EK_DOMAIN);
   PWA = PVAff(Domain, 1);
   PWA.dropUnusedParameters();
@@ -68,7 +66,6 @@ PEXP *PEXP::setDomain(const PVSet &Domain, bool Overwrite) {
     PWA.simplify(KnownDomain);
 
   // Sanity check
-  errs() << "ID: " << InvalidDomain << " KD: " << KnownDomain << "\n";
   assert(KnownDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
   assert(InvalidDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
 
@@ -185,14 +182,33 @@ PolyhedralValueInfoCache::~PolyhedralValueInfoCache() {
   ParameterMap.clear();
 }
 
+std::string PolyhedralValueInfoCache::getParameterNameForValue(Value &V) {
+  if (IntrinsicInst *Intr = dyn_cast<IntrinsicInst>(&V)) {
+    switch (Intr->getIntrinsicID()) {
+    case Intrinsic::nvvm_read_ptx_sreg_tid_x:
+      return "nvvm_tid_x";
+    case Intrinsic::nvvm_read_ptx_sreg_tid_y:
+      return "nvvm_tid_y";
+    case Intrinsic::nvvm_read_ptx_sreg_tid_z:
+      return "nvvm_tid_z";
+    case Intrinsic::nvvm_read_ptx_sreg_tid_w:
+      return "nvvm_tid_w";
+    default:
+      break;
+    }
+  }
+
+  if (V.hasName())
+    return V.getName().str();
+  return "p" + std::to_string(ParameterMap.size());
+}
+
 PVId PolyhedralValueInfoCache::getParameterId(Value &V, const PVCtx &Ctx) {
   PVId &Id = ParameterMap[&V];
   if (Id)
     return Id;
 
-  std::string ParameterName;
-  ParameterName = V.hasName() ? V.getName().str()
-                              : "p" + std::to_string(ParameterMap.size());
+  std::string ParameterName = getParameterNameForValue(V);
   ParameterName = PVBase::getIslCompatibleName("", ParameterName, "");
   DEBUG(dbgs() << "NEW PARAM: " << V << " ::: " << ParameterName << "\n";);
   Id = PVId(Ctx, ParameterName, &V);
@@ -259,7 +275,7 @@ bool PolyhedralValueInfo::isVaryingInScope(Instruction &I, Loop *Scope,
     return false;
   if (Strict)
     return true;
-  if (I.mayReadFromMemory() || isa<CallInst>(I))
+  if (I.mayReadFromMemory())
     return true;
 
   Loop *L = nullptr;

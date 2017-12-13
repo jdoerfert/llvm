@@ -238,6 +238,8 @@ class PolyhedralValueInfoCache final {
     return PE;
   }
 
+  std::string getParameterNameForValue(Value &V);
+
   /// Return the unique parameter id for @p V.
   PVId getParameterId(Value &V, const PVCtx &Ctx);
 

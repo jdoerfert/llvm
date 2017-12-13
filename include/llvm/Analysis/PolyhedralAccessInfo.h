@@ -16,6 +16,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/PValue.h"
+#include "llvm/Analysis/PolyhedralUtils.h"
 
 namespace llvm {
 
@@ -142,6 +143,8 @@ public:
 
   bool contains(Instruction *I) const { return Contains(I); }
 
+  void rewrite(PVRewriter<PVMap> &Rewriter);
+
   ~PACCSummary();
 
 private:
@@ -215,13 +218,13 @@ public:
   const PACC *getAsAccess(Instruction *Inst, Loop *Scope = nullptr);
 
   /// Return an access summary for the blocks in @p Blocks.
-  const PACCSummary *getAccessSummary(ArrayRef<BasicBlock *> Blocks,
-                                      PACCSummary::SummaryScopeKind Kind,
-                                      Loop *Scope = nullptr);
+  PACCSummary *getAccessSummary(ArrayRef<BasicBlock *> Blocks,
+                                PACCSummary::SummaryScopeKind Kind,
+                                Loop *Scope = nullptr);
 
   /// Return an access summary for the function @p F.
-  const PACCSummary *getAccessSummary(Function &F,
-                                      PACCSummary::SummaryScopeKind Kind);
+  PACCSummary *getAccessSummary(Function &F,
+                                PACCSummary::SummaryScopeKind Kind);
 
   /// Return true if @p PA represents a value that is fixed for one function
   /// invocation.
