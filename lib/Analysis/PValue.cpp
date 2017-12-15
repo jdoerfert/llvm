@@ -307,11 +307,7 @@ PVSet &PVSet::intersect(const PVSet &S) {
     Obj = isl_set_copy(S.Obj);
   else if (S.Obj) {
     isl_set *SObj = S;
-    isl_set_dump(Obj);
-    isl_set_dump(SObj);
     unifySetDimensions(Obj, SObj);
-    isl_set_dump(Obj);
-    isl_set_dump(SObj);
     Obj = isl_set_intersect(Obj, SObj);
     Obj = isl_set_coalesce(Obj);
   }
@@ -553,8 +549,9 @@ PVMap::PVMap(ArrayRef<PVAff> Affs, const PVId &Id) {
   isl_space *Space = isl_space_alloc(Aff.getIslCtx(), 0,
                                      Aff.getNumInputDimensions(), Affs.size());
   isl_pw_multi_aff *MPWA = isl_pw_multi_aff_zero(Space);
-  for (unsigned i = 0; i < Affs.size(); i++)
+  for (unsigned i = 0; i < Affs.size(); i++) {
     MPWA = isl_pw_multi_aff_set_pw_aff(MPWA, i, Affs[i]);
+  }
 
   Obj = isl_map_from_pw_multi_aff(MPWA);
   assert(!isl_map_has_tuple_id(Obj, isl_dim_out));
@@ -726,8 +723,6 @@ PVMap &PVMap::addToOutputDimension(const PVMap &Other, unsigned Dim) {
   isl_map *OtherMap = Other;
   OtherMap = isl_map_align_params(OtherMap, getSpace());
   Obj = isl_map_align_params(Obj, isl_map_get_space(OtherMap));
-  isl_map_dump(Obj);
-  isl_map_dump(OtherMap);
   Obj = isl_map_sum(Obj, OtherMap);
   return *this;
 }
@@ -1065,12 +1060,16 @@ PVAff &PVAff::maxInLastInputDims(unsigned Dims) {
   return *this;
 }
 
-PVAff &PVAff::simplify(PVSet &S) {
+PVAff &PVAff::simplify(const PVSet &S) {
+  if (!Obj)
+    return *this;
+
   isl_set *Set;
   int DimDiff = S.getNumInputDimensions() - getNumInputDimensions();
   if (DimDiff > 0) {
-    S.dropDimsFrom(S.getNumInputDimensions() - DimDiff);
+    unsigned Dim = S.getNumInputDimensions() - DimDiff;
     Set = S;
+    Set = isl_set_project_out(Set, isl_dim_set, Dim, getNumInputDimensions() - Dim);
   }
   else if (DimDiff < 0)
     Set = isl_set_add_dims(S, isl_dim_set, -DimDiff);

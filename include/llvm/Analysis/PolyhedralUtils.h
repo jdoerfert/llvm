@@ -17,7 +17,7 @@
 
 namespace llvm {
 
-template<typename PVType, bool UseGlobalIdx = true>
+template<typename PVType, bool UseGlobalIdx = false>
 struct NVVMRewriter : public PVRewriter<PVType> {
   enum NVVMDim {
     NVVMDIM_NONE,

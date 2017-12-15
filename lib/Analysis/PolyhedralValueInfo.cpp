@@ -102,6 +102,10 @@ PEXP &PEXP::operator=(const PEXP &PE) {
   InvalidDomain = PE.getInvalidDomain();
   KnownDomain = PE.getKnownDomain();
 
+  // Sanity check
+  assert(!KnownDomain || KnownDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
+  assert(!InvalidDomain || InvalidDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
+
   return *this;
 }
 
@@ -110,6 +114,12 @@ PEXP &PEXP::operator=(PEXP &&PE) {
   std::swap(PWA, PE.PWA);
   std::swap(InvalidDomain, PE.InvalidDomain);
   std::swap(KnownDomain, PE.KnownDomain);
+
+  // Sanity check
+  assert(!KnownDomain ||
+         KnownDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
+  assert(!InvalidDomain ||
+         InvalidDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
 
   return *this;
 }
@@ -126,19 +136,36 @@ void PEXP::addInvalidDomain(const PVSet &ID) {
     DEBUG(errs() << " => invalid domain is too complex. Invalidate!\n");
     invalidate();
   }
+
+  // Sanity check
+  assert(!KnownDomain || !PWA ||
+         KnownDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
+  assert(!InvalidDomain || !PWA ||
+         InvalidDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
+  assert(!KnownDomain || !InvalidDomain ||
+         KnownDomain.getNumInputDimensions() ==
+             InvalidDomain.getNumInputDimensions());
 }
 
 void PEXP::addKnownDomain(const PVSet &KD) {
   DEBUG(dbgs() << " KD increase: " << KD << " for " << getValue()->getName()
                << "\n");
   KnownDomain.intersect(KD);
-  errs() << "New KD: " << KD << "\n";
   if (KnownDomain.isComplex()) {
     DEBUG(errs() << " => known domain is too complex. Drop it!\n");
     KnownDomain = PVSet::universe(KnownDomain);
   }
   PWA.simplify(KnownDomain);
   InvalidDomain.simplify(KD);
+
+  // Sanity check
+  assert(!KnownDomain || !PWA ||
+         KnownDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
+  assert(!InvalidDomain || !PWA ||
+         InvalidDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
+  assert(!KnownDomain || !InvalidDomain ||
+         KnownDomain.getNumInputDimensions() ==
+             InvalidDomain.getNumInputDimensions());
 }
 
 PEXP *PEXP::invalidate() {
@@ -164,6 +191,7 @@ void PEXP::adjustInvalidAndKnownDomain() {
   if (HasNSW) {
     PVSet BoundedDomain = PWA.getGreaterEqualDomain(LowerPWA).intersect(
         PWA.getLessEqualDomain(UpperPWA));
+
     KnownDomain.intersect(BoundedDomain);
   } else {
     PVSet BoundedDomain = LowerPWA.getGreaterEqualDomain(PWA).unify(
@@ -171,6 +199,10 @@ void PEXP::adjustInvalidAndKnownDomain() {
 
     InvalidDomain.unify(BoundedDomain);
   }
+
+  // Sanity check
+  assert(!KnownDomain || KnownDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
+  assert(!InvalidDomain || InvalidDomain.getNumInputDimensions() == PWA.getNumInputDimensions());
 }
 
 // ------------------------------------------------------------------------- //

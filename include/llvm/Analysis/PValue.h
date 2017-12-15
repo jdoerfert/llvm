@@ -404,7 +404,7 @@ public:
   /// @returns A reference to this object (*this).
   PVAff &intersectDomain(const PVSet &S);
 
-  PVAff &simplify(PVSet &S);
+  PVAff &simplify(const PVSet &S);
 
   PVSet getLessThanDomain(const PVAff &Aff) const;
   PVSet getLessEqualDomain(const PVAff &Aff) const;

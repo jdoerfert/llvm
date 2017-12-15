@@ -138,13 +138,13 @@ PACCSummary::findMultidimensionalViewSize(PolyhedralValueInfo &PI,
     Value *Op0 = I->getOperand(0);
     Value *Op1 = I->getOperand(1);
 
-    if (!isa<Instruction>(Op0))
-      PotentialSizes[Op0].push_back(std::make_pair(I, PI.getPEXP(Op1, Scope)));
-    if (!isa<Instruction>(Op1))
-      PotentialSizes[Op1].push_back(std::make_pair(I, PI.getPEXP(Op0, Scope)));
+    const PEXP *OpPE0 = PI.getPEXP(Op0, Scope);
+    const PEXP *OpPE1 = PI.getPEXP(Op1, Scope);
 
-    DEBUG(if (isa<Instruction>(Op0) && isa<Instruction>(Op1)) dbgs()
-              << "No non instruction operand found\n";);
+    if (PI.isUnknown(OpPE0))
+      PotentialSizes[Op0].push_back(std::make_pair(I, PI.getPEXP(Op1, Scope)));
+    if (PI.isUnknown(OpPE1))
+      PotentialSizes[Op1].push_back(std::make_pair(I, PI.getPEXP(Op0, Scope)));
   }
 
   DEBUG(dbgs() << "Found " << PotentialSizes.size() << " potential sizes\n");
@@ -152,18 +152,36 @@ PACCSummary::findMultidimensionalViewSize(PolyhedralValueInfo &PI,
     return nullptr;
   }
 
-  if (PotentialSizes.size() != 1) {
+  Value *PotentialSize = nullptr;
+  if (PotentialSizes.size()  == 1)
+    PotentialSize = PotentialSizes.begin()->getFirst();
+  else {
+    for (auto &It : PotentialSizes) {
+      if (It.second.size() > 1)
+        continue;
+      ParameterVector.clear();
+      PI.getParameters(PI.getPEXP(It.first, Scope), ParameterVector);
+      if (!std::all_of(ParameterVector.begin(), ParameterVector.end(),
+                       [](Value *P) { return isa<Argument>(P); }))
+        continue;
+      if (PotentialSize)
+        return nullptr;
+      PotentialSize = It.first;
+    }
+  }
+
+  if (!PotentialSize) {
     DEBUG(dbgs() << "TODO: choose potential size!\n");
     return nullptr;
   }
-  if (PotentialSizes.begin()->second.size() != 1) {
+  if (PotentialSizes[PotentialSize].size() != 1) {
     DEBUG(dbgs() << "TODO: this is a hack!\n");
     return nullptr;
   }
 
-  I = PotentialSizes.begin()->second.front().first;
-  Rem = PotentialSizes.begin()->second.front().second;
-  return PI.getPEXP(PotentialSizes.begin()->first, Scope);
+  I = PotentialSizes[PotentialSize].front().first;
+  Rem = PotentialSizes[PotentialSize].front().second;
+  return PI.getPEXP(PotentialSize, Scope);
 }
 
 void PACCSummary::findMultidimensionalView(PolyhedralValueInfo &PI,
@@ -224,6 +242,9 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
 
     AI->ElementSize = getElementSize(PACCVector[0]->getPointer(), DL);
     for (const PACC *PA : PACCVector) {
+      assert(PA);
+      assert(PA->getPEXP());
+      assert(PA->getPEXP()->getPWA());
       // TODO: Also take the constant PA offset into account!
       AI->ElementSize = GreatestCommonDivisor64(
           AI->ElementSize, getElementSize(PA->getPointer(), DL));
@@ -358,7 +379,7 @@ void PACCSummary::print(raw_ostream &OS, PolyhedralValueInfo *PVI) const {
     OS << "\tUnknown reads: None\n";
   for (auto It = unknown_reads_begin(), End = unknown_reads_end(); It != End;
        It++)
-    OS << "\t - " << *It << "\n";
+    OS << "\t - " << **It << "\n";
 
   if (getNumUnknownWrites())
     OS << "\tUnknown writes:\n";
@@ -366,7 +387,7 @@ void PACCSummary::print(raw_ostream &OS, PolyhedralValueInfo *PVI) const {
     OS << "\tUnknown writes: None\n";
   for (auto It = unknown_writes_begin(), End = unknown_writes_end(); It != End;
        It++)
-    OS << "\t - " << *It << "\n";
+    OS << "\t - " << **It << "\n";
 
   std::set<PVId> ParameterSet;
   SmallVector<PVId, 8> ParameterVector;
@@ -390,14 +411,20 @@ void PACCSummary::print(raw_ostream &OS, PolyhedralValueInfo *PVI) const {
 
     OS << "\tBase pointer: " << (BasePointer ? BasePointer->getName() : "<n/a>")
        << "\n";
+    if (!AI->DimensionSizes.empty()) {
+      OS << "\t\tDimension sizes:\n";
+      for (const PEXP *DimSizePE : AI->DimensionSizes)
+        OS << "\t\t- " << DimSizePE->getPWA().str() << "\n";
+    }
     if (AI->MayReadMap)
-      OS << "\t\t  MayRead: " << AI->MayReadMap << "\n";
+      OS << "\t\tMayRead: " << AI->MayReadMap << "\n";
     if (AI->MustReadMap)
-      OS << "\t\t MustRead: " << AI->MustReadMap << "\n";
+      OS << "\t\tMustRead: " << AI->MustReadMap << "\n";
     if (AI->MayWriteMap)
-      OS << "\t\t MayWrite: " << AI->MayWriteMap << "\n";
+      OS << "\t\tMayWrite: " << AI->MayWriteMap << "\n";
     if (AI->MustWriteMap)
       OS << "\t\tMustWrite: " << AI->MustWriteMap << "\n";
+    OS << "\n";
   }
 
   OS << "Referenced parameters:\n";
@@ -480,13 +507,15 @@ const PACC *PolyhedralAccessInfo::getAsAccess(Instruction &Inst, Value &Pointer,
   PVId PtrValId = PI.getParameterId(*PtrVal);
 
   const PEXP *PtrValPE = PI.getPEXP(PtrVal, Scope);
+
   PEXP *AccessPE = new PEXP(&Inst, nullptr);
   PEBuilder.assign(AccessPE, PointerPE, PtrValPE, PVAff::createSub);
 
   PACC::AccessKind AccKind = IsWrite ? PACC::AK_WRITE : PACC::AK_READ;
 
   const PEXP *Domain = PI.getDomainFor(Inst.getParent(), Scope);
-  AccessPE->getPWA().intersectDomain(Domain->getDomain());
+  if (PI.isAffine(Domain))
+    AccessPE->getPWA().intersectDomain(Domain->getDomain());
 
   AccessPA = new PACC(Pointer, *AccessPE, PtrValId, AccKind);
   return AccessPA;
@@ -595,7 +624,7 @@ bool PolyhedralAccessInfoWrapperPass::runOnFunction(Function &F) {
 void PolyhedralAccessInfoWrapperPass::print(raw_ostream &OS,
                                             const Module *) const {
   PACCSummary *PS = PAI->getAccessSummary(*F, PACCSummary::SSK_COMPLETE);
-  NVVMRewriter<PVMap, /* UseGlobalIdx */ true> CudaRewriter;
+  NVVMRewriter<PVMap, /* UseGlobalIdx */ false> CudaRewriter;
   PS->rewrite(CudaRewriter);
   PS->print(OS, &PAI->getPolyhedralValueInfo());
 }

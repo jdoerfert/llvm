@@ -98,10 +98,11 @@ bool PolyhedralExpressionBuilder::assign(PEXP *PE, const PEXP *LHSPE,
   PE->PWA = Combinator(PWA0, PWA1);
 
   // Sanity test.
-  unsigned NumDims = getRelativeLoopDepth(getLoopForPE(PE));
-  (void) NumDims;
-  assert(NumDims ==
-         PE->PWA.getNumInputDimensions());
+  unsigned LoopDims = getRelativeLoopDepth(getLoopForPE(PE));
+  unsigned NumDims = PE->PWA.getNumInputDimensions();
+  assert(LoopDims >= NumDims);
+
+  PE->PWA.addInputDims(LoopDims - NumDims);
 
   return PE->getKind() != PEXP::EK_NON_AFFINE;
 }
@@ -448,8 +449,13 @@ PEXP *PolyhedralExpressionBuilder::visitOperand(Value &Op, Instruction &I) {
   return PE;
 
   Instruction *OpI = dyn_cast<Instruction>(&Op);
-  if (!OpI)
+  Loop *OpL = OpI ? PI.LI.getLoopFor(OpI->getParent()) : nullptr;
+  adjustDomainDimensions(PE->PWA, OpL, PI.LI.getLoopFor(I.getParent()), true);
+  return PE;
+
+  if (!OpI) {
     return PE;
+  }
 
   Loop *OpIL = PI.LI.getLoopFor(OpI->getParent());
   unsigned NumDims = PE->getPWA().getNumInputDimensions();
@@ -584,6 +590,8 @@ void PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj, Loop *OldL,
 
   unsigned OldDepth = getRelativeLoopDepth(OldL);
   unsigned NewDepth = getRelativeLoopDepth(NewL);
+  if (OldDepth == NewDepth && OldDepth == 0)
+    return;
 
   // Sanity check
   DEBUG(dbgs() << " OldDepth: " << OldDepth << " NewDepth: " << NewDepth
@@ -594,7 +602,7 @@ void PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj, Loop *OldL,
   //   1) The depth is the same but the loops are not.
   //      => One loop was left one was entered.
   //   2) The depth increased from OldL to NewL.
-  //      => One loop was entered, none was left.
+  //      => Loops were entered, none was left.
   //   3) The depth decreased from OldL to NewL.
   //      => Loops were left were difference of the depths defines how many.
   if (OldDepth == NewDepth) {
@@ -604,8 +612,8 @@ void PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj, Loop *OldL,
     Obj.dropLastInputDims(1);
     Obj.addInputDims(1);
   } else if (OldDepth < NewDepth) {
-    assert(OldDepth + 1 == NewDepth);
-    Obj.addInputDims(1);
+    // TODO: one loop could be left
+    Obj.addInputDims(NewDepth - OldDepth);
   } else {
     assert(OldDepth > NewDepth);
     unsigned DepthDiff = OldDepth - NewDepth;
@@ -728,6 +736,7 @@ PolyhedralExpressionBuilder::visitGetElementPtrInst(GetElementPtrInst &I) {
 
   auto *PE = getOrCreatePEXP(I);
   *PE = *PtrPE;
+  adjustDomainDimensions(PE->PWA, PtrPE, PE, true);
 
   auto *Ty = I.getPointerOperandType();
   for (auto &Op : make_range(I.idx_begin(), I.idx_end())) {
@@ -736,9 +745,21 @@ PolyhedralExpressionBuilder::visitGetElementPtrInst(GetElementPtrInst &I) {
       return visitParameter(I);
 
     if (Ty->isStructTy()) {
-      // TODO: Struct
-      DEBUG(dbgs() << "TODO: Struct ty " << *Ty << " for " << I << "\n");
-      return visitParameter(I);
+      if (!PI.isConstant(PEOp)) {
+        DEBUG(dbgs() << "\nTODO: Non constant access to struct ty " << *Ty
+                     << " Op: " << *Op << " for " << I << "\n");
+        return visitParameter(I);
+      }
+      if (auto *ConstOp = dyn_cast<ConstantInt>(Op)) {
+        auto StructElementNo = ConstOp->getZExtValue();
+        assert(StructElementNo < Ty->getStructNumElements());
+        const StructLayout *Layout = DL.getStructLayout(cast<StructType>(Ty));
+        auto ElementOffset = Layout->getElementOffset(StructElementNo);
+        PVAff Offset(PE->PWA, ElementOffset);
+        Ty = Ty->getStructElementType(StructElementNo);
+        continue;
+      }
+      assert(0 && "TODO Constant OpPE but not constant Op!\n");
     }
 
     uint64_t Size = 0;
