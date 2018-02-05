@@ -196,6 +196,8 @@ PVSet &PVSet::operator=(PVSet &&Other) {
 
 PVSet::operator isl_set *() const { return isl_set_copy(Obj); }
 
+isl_set * PVSet::getObj() const { return *this; }
+
 isl_ctx *PVSet::getIslCtx() const { return isl_set_get_ctx(Obj); }
 
 isl_space *PVSet::getSpace() const { return isl_set_get_space(Obj); }
@@ -417,6 +419,10 @@ PVSet &PVSet::maxInLastInputDims(unsigned Dims) {
   unsigned NumDims = getNumInputDimensions();
   assert(NumDims >= Dims);
   Obj = isl_set_project_out(Obj, isl_dim_set, 0, NumDims - Dims);
+  if (!isl_set_is_bounded(Obj)) {
+    Obj = isl_set_free(Obj);
+    return *this;
+  }
   Obj = isl_set_lexmax(Obj);
   Obj = isl_set_insert_dims(Obj, isl_dim_set, 0, NumDims - Dims);
   return *this;
@@ -598,6 +604,10 @@ isl_ctx *PVMap::getIslCtx() const { return isl_map_get_ctx(Obj); }
 isl_space *PVMap::getSpace() const { return isl_map_get_space(Obj); }
 
 bool PVMap::isEmpty() const { return Obj && isl_map_is_empty(Obj); }
+
+bool PVMap::isEqual(const PVMap &Map) const {
+  return Obj && Map && isl_map_is_equal(Obj, Map);
+}
 
 size_t PVMap::getNumInputDimensions() const { return isl_map_dim(Obj, isl_dim_in); }
 
@@ -901,6 +911,11 @@ bool PVAff::involvesId(const PVId &Id) const {
   return getParameterPosition(Id) >= 0;
 }
 
+bool PVAff::involvesInput(unsigned Dim) const {
+  assert(Dim <= getNumInputDimensions());
+  return isl_pw_aff_involves_dims(Obj, isl_dim_in, Dim, 1);
+}
+
 void PVAff::addInputDims(unsigned Dims) {
   Obj = isl_pw_aff_add_dims(Obj, isl_dim_in, Dims);
 }
@@ -972,6 +987,18 @@ bool PVAff::isInteger() const {
 
 bool PVAff::isConstant() const {
   return isl_pw_aff_is_cst(Obj);
+}
+
+bool PVAff::isEqual(const PVAff &Aff) const {
+  isl_pw_aff *AffPWA = isl_pw_aff_add_dims(
+      Aff, isl_dim_in, getNumInputDimensions() - Aff.getNumInputDimensions());
+  return isl_pw_aff_is_equal(Obj, AffPWA);
+}
+
+PVSet PVAff::getEqualDomain(const PVAff &Aff) const {
+  isl_pw_aff *AffPWA = isl_pw_aff_add_dims(
+      Aff, isl_dim_in, getNumInputDimensions() - Aff.getNumInputDimensions());
+  return isl_pw_aff_eq_set(isl_pw_aff_copy(Obj), AffPWA);
 }
 
 PVSet PVAff::getLessThanDomain(const PVAff &Aff) const {
@@ -1170,60 +1197,105 @@ struct EvolutionInfo {
   int LD;
   int Pos;
   long Val;
+  PVSet &NegationSet;
 };
 
-static isl_stat adjustBackedgeVal(isl_set *Domain, isl_aff *Aff, void *User) {
+static isl_stat adjustBackedgeVal(isl_set *D, isl_aff *Aff, void *User) {
+  PVSet Domain(D);
   auto *EI = static_cast<EvolutionInfo*>(User);
-  auto *Val = isl_aff_get_constant_val(Aff);
-  if (isl_val_is_zero(Val) || isl_val_get_den_si(Val) != 1) {
-    isl_val_free(Val);
-    isl_set_free(Domain);
+  auto *ConstantVal = isl_aff_get_constant_val(Aff);
+  if (isl_val_get_den_si(ConstantVal) != 1) {
+    isl_val_free(ConstantVal);
     isl_aff_free(Aff);
     return isl_stat_error;
   }
-  //long ValL = isl_val_get_num_si(Val);
-  //if (EI->Val != LONG_MAX && EI->Val != ValL) {
-    //isl_val_free(Val);
-    //isl_set_free(Domain);
+  auto *PosVal = isl_aff_get_coefficient_val(Aff, isl_dim_param, EI->Pos);
+  if (isl_val_is_zero(PosVal)) {
+    isl_val_free(ConstantVal);
+    EI->PWA.union_add(PVAff(isl_pw_aff_from_aff(Aff)).intersectDomain(Domain));
+    return isl_stat_ok;
+  }
+  if (!isl_val_is_one(PosVal) && !isl_val_is_negone(PosVal)) {
+    isl_val_free(ConstantVal);
+    isl_aff_free(Aff);
+    return isl_stat_error;
+  }
+  //long ValL = isl_val_get_num_si(ConstantVal);
+  //if (EI->ConstantVal != LONG_MAX && EI->ConstantVal != ValL) {
+    //isl_val_free(ConstantVal);
     //isl_aff_free(Aff);
     //return isl_stat_error;
   //}
-  //EI->Val = ValL;
+  //EI->ConstantVal = ValL;
 
-  // Aff = isl_aff_set_constant_val(Aff, isl_val_neg(isl_val_copy(Val)));
-  Aff = isl_aff_set_constant_si(Aff, 0);
-  Aff = isl_aff_add_dims(Aff, isl_dim_in, EI->LD + 1);
-  Aff = isl_aff_set_coefficient_val(Aff, isl_dim_in, EI->LD, Val);
-
-  auto *PosVal = isl_aff_get_coefficient_val(Aff, isl_dim_param, EI->Pos);
-  if (!isl_val_is_one(PosVal)) {
-    isl_val_free(Val);
-    isl_set_free(Domain);
-    isl_aff_free(Aff);
-    return isl_stat_error;
+  Aff = isl_aff_drop_dims(Aff, isl_dim_param, EI->Pos, 1);
+  assert(isl_aff_dim(Aff, isl_dim_in) < EI->LD + 1);
+  Aff = isl_aff_add_dims(Aff, isl_dim_in,
+                         EI->LD + 1 - isl_aff_dim(Aff, isl_dim_in));
+  assert(Domain.getNumInputDimensions() < EI->LD + 1);
+  Domain.addInputDims(EI->LD + 1 - Domain.getNumInputDimensions());
+  Domain.projectParameter(Domain.getParameter(EI->Pos));
+  if (isl_val_is_one(PosVal)) {
+    // Aff = isl_aff_set_constant_val(Aff, isl_val_neg(isl_val_copy(ConstantVal)));
+    Aff = isl_aff_set_constant_si(Aff, 0);
+    Aff = isl_aff_add_coefficient_val(Aff, isl_dim_in, EI->LD, ConstantVal);
+    PVAff Increment = isl_pw_aff_from_aff(Aff);
+    Increment.intersectDomain(Domain);
+    EI->PWA.union_add(Increment);
+  } else {
+    isl_val_free(ConstantVal);
+    assert(isl_val_is_negone(PosVal));
+    auto *LSpace = isl_aff_get_domain_local_space(Aff);
+    auto *ModAff = isl_aff_zero_on_domain(LSpace);
+    ModAff = isl_aff_set_coefficient_si(ModAff, isl_dim_in, EI->LD, 1);
+    ModAff = isl_aff_mod_val(ModAff,
+                              isl_val_int_from_si(isl_aff_get_ctx(ModAff), 2));
+    PVSet EvenSet(isl_set_from_basic_set(isl_aff_zero_basic_set(ModAff)));
+    EvenSet.intersect(Domain);
+    PVSet OddSet(Domain);
+    OddSet.subtract(EvenSet);
+    EI->NegationSet.unify(OddSet);
+    PVAff OddAff = isl_pw_aff_from_aff(isl_aff_neg(Aff));
+    OddAff.intersectDomain(OddSet);
+    PVAff EvenAff(EvenSet, 0);
+    EI->PWA.union_add(EvenAff);
+    EI->PWA.union_add(OddAff);
   }
-  Aff = isl_aff_set_coefficient_si(Aff, isl_dim_param, EI->Pos, 0);
 
-  Domain = isl_set_drop_constraints_involving_dims(Domain, isl_dim_param,
-                                                   EI->Pos, 1);
-
-  PVAff Increment = isl_pw_aff_from_aff(Aff);
-  Increment.intersectDomain(Domain);
-  EI->PWA.union_add(Increment);
   return isl_stat_ok;
 }
 
-PVAff PVAff::perPiecePHIEvolution(const PVId &Id, int LD) const {
+PVAff PVAff::perPiecePHIEvolution(const PVId &Id, int LD, PVSet &NegationSet) const {
   int Pos = getParameterPosition(Id);
   if (Pos < 0)
-    return PVAff();
+    return *this;
 
-  EvolutionInfo EI = {PVAff(), LD, Pos, LONG_MAX};
+  EvolutionInfo EI = {PVAff(), LD, Pos, LONG_MAX, NegationSet};
   isl_stat Success = isl_pw_aff_foreach_piece(Obj, adjustBackedgeVal, &EI);
   if (Success != isl_stat_ok)
     return PVAff();
 
   return EI.PWA;
+}
+
+struct IterationMoveInfo {
+  PVAff PWA;
+  unsigned Dim;
+};
+
+static isl_stat movePieceOneIteration(isl_set *D, isl_aff *Aff, void *User) {
+  auto *IMI = static_cast<IterationMoveInfo *>(User);
+  PVSet Domain(D);
+  Domain.getNextIteration(IMI->Dim);
+  IMI->PWA.union_add(PVAff(isl_pw_aff_from_aff(Aff)).intersectDomain(Domain));
+  return isl_stat_ok;
+}
+
+PVAff PVAff::moveOneIteration(unsigned Dim) {
+  IterationMoveInfo IMI = {PVAff(), Dim};
+  isl_stat Success = isl_pw_aff_foreach_piece(Obj, movePieceOneIteration, &IMI);
+  assert(Success == isl_stat_ok);
+  return IMI.PWA;
 }
 
 PVAff PVAff::getExpPWA(const PVAff &PWA) {

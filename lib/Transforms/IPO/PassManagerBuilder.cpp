@@ -590,6 +590,7 @@ void PassManagerBuilder::populateModulePassManager(
   MPM.add(createFloat2IntPass());
 
   addExtensionsToPM(EP_VectorizerStart, MPM);
+  //MPM.add(createPolyhedralValueTransformerWrapperPass());
 
   // Re-rotate loops in all our loop nests. These may have fallout out of
   // rotated form due to GVN or other transformations, and the vectorizer relies

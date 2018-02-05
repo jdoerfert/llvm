@@ -592,6 +592,7 @@ FunctionPass *createLibCallsShrinkWrapPass();
 FunctionPass *createEntryExitInstrumenterPass();
 FunctionPass *createPostInlineEntryExitInstrumenterPass();
 
+FunctionPass *createPolyhedralValueTransformerWrapperPass();
 } // End llvm namespace
 
 #endif

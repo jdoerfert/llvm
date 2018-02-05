@@ -18,9 +18,12 @@
 #include "llvm/Analysis/PValue.h"
 #include "llvm/Analysis/PolyhedralUtils.h"
 
+#include <set>
+
 namespace llvm {
 
 class Loop;
+class LoopInfo;
 class PEXP;
 class PolyhedralValueInfo;
 class PolyhedralExpressionBuilder;
@@ -80,6 +83,12 @@ private:
 /// look at multiple accesses at once and in a larger scope.
 class PACCSummary {
 public:
+
+  struct ArrayInfo;
+  using ArrayInfoMapTy = DenseMap<Value *, ArrayInfo *>;
+  using KnownAccessesTy = SmallVector<const PACC *, 4>;
+  using UnknownInstructionsTy = SmallVector<Instruction *, 4>;
+
   enum SummaryScopeKind {
     SSK_EXTERNAL, ///< Accesses accessible outside the code region.
     SSK_INTERNAL, ///< Accesses accessible inside the code region.
@@ -99,6 +108,8 @@ public:
     /// The dimension sizes in case this array has a multidimensional view.
     SmallVector<const PEXP *, 4> DimensionSizes;
 
+    DenseMap<const PACC *, PVMap> AccessMultiDimMap;
+
     PVMap MayReadMap;
 
     PVMap MustReadMap;
@@ -106,12 +117,14 @@ public:
     PVMap MayWriteMap;
 
     PVMap MustWriteMap;
+
+    void collectParameters(std::set<PVId> &ParameterSet) const;
+    void print(raw_ostream &OS) const;
   };
 
-  const ArrayInfo *getArrayInfoForPointer(const Value *Pointer) const { return ArrayInfoMap.lookup(Pointer); };
-
-  using ArrayInfoMapTy = DenseMap<Value *, ArrayInfo *>;
-  using UnknownInstructionsTy = SmallVector<Instruction *, 4>;
+  const ArrayInfo *getArrayInfoForPointer(const Value *Pointer) const {
+    return ArrayInfoMap.lookup(Pointer);
+  };
 
   /// Iterator interface for array infos.
   ///
@@ -121,21 +134,38 @@ public:
   const_iterator end() const { return ArrayInfoMap.end(); }
   ///}
 
+  size_t getNumReads() const { return KnownReads.size(); }
+  size_t getNumWrites() const { return KnownWrites.size(); }
   size_t getNumUnknownReads() const { return UnknownReads.size(); }
   size_t getNumUnknownWrites() const { return UnknownWrites.size(); }
+
+  /// Iterator interface for known read/write instructions.
+  ///
+  ///{
+  using const_inst_iterator = KnownAccessesTy::const_iterator;
+  const_inst_iterator reads_begin() const {
+    return KnownReads.begin();
+  }
+  const_inst_iterator reads_end() const { return KnownReads.end(); }
+  const_inst_iterator writes_begin() const {
+    return KnownWrites.begin();
+  }
+
+  const_inst_iterator writes_end() const { return KnownWrites.end(); }
+  ///}
 
   /// Iterator interface for unknown read/write instructions.
   ///
   ///{
-  using const_inst_iterator = UnknownInstructionsTy::const_iterator;
-  const_inst_iterator unknown_reads_begin() const {
+  using const_unknown_inst_iterator = UnknownInstructionsTy::const_iterator;
+  const_unknown_inst_iterator unknown_reads_begin() const {
     return UnknownReads.begin();
   }
-  const_inst_iterator unknown_reads_end() const { return UnknownReads.end(); }
-  const_inst_iterator unknown_writes_begin() const {
+  const_unknown_inst_iterator unknown_reads_end() const { return UnknownReads.end(); }
+  const_unknown_inst_iterator unknown_writes_begin() const {
     return UnknownWrites.begin();
   }
-  const_inst_iterator unknown_writes_end() const { return UnknownWrites.end(); }
+  const_unknown_inst_iterator unknown_writes_end() const { return UnknownWrites.end(); }
   ///}
 
   void print(raw_ostream &OS, PolyhedralValueInfo *PVI = nullptr) const;
@@ -164,9 +194,10 @@ private:
         : DimensionSizes(DimensionSizes) {}
   };
 
-  const PEXP *findMultidimensionalViewSize(PolyhedralValueInfo &PI,
-                                           ArrayRef<const PEXP *> PEXPs,
-                                           Instruction *&I, const PEXP *&Rem);
+  const PEXP *findMultidimensionalViewSize(
+      PolyhedralValueInfo &PI, ArrayRef<const PEXP *> PEXPs,
+      SmallVectorImpl<std::pair<Instruction *, const PEXP *>>
+          &InstsAndRemainders);
 
   void findMultidimensionalView(PolyhedralValueInfo &PI,
                                 MultiDimensionalViewInfo &MDVI,
@@ -177,6 +208,9 @@ private:
 
   SummaryScopeKind Kind;
   const ContainsFuncTy &Contains;
+
+  KnownAccessesTy KnownReads;
+  KnownAccessesTy KnownWrites;
 
   UnknownInstructionsTy UnknownReads;
   UnknownInstructionsTy UnknownWrites;
@@ -196,6 +230,8 @@ class PolyhedralAccessInfo {
   /// The PolyhedralValueInfo used to get value information.
   PolyhedralValueInfo &PI;
 
+  LoopInfo &LI;
+
   PolyhedralExpressionBuilder &PEBuilder;
 
   DenseMap<Instruction *, PACC *> AccessMap;
@@ -204,7 +240,7 @@ class PolyhedralAccessInfo {
 
 public:
   /// Constructor
-  PolyhedralAccessInfo(PolyhedralValueInfo &PI);
+  PolyhedralAccessInfo(PolyhedralValueInfo &PI, LoopInfo &LI);
 
   ~PolyhedralAccessInfo();
 
@@ -225,6 +261,9 @@ public:
   /// Return an access summary for the function @p F.
   PACCSummary *getAccessSummary(Function &F,
                                 PACCSummary::SummaryScopeKind Kind);
+
+  void extractComputations(Function &F);
+  void detectKnownComputations(Function &F);
 
   /// Return true if @p PA represents a value that is fixed for one function
   /// invocation.

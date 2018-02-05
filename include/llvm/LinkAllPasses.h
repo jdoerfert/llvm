@@ -48,6 +48,7 @@
 #include "llvm/Transforms/ObjCARC.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
+#include "llvm/Transforms/Scalar/PolyhedralValueTransformer.h"
 #include "llvm/Transforms/Utils/SymbolRewriter.h"
 #include "llvm/Transforms/Utils/UnifyFunctionExitNodes.h"
 #include "llvm/Transforms/Vectorize.h"
@@ -144,6 +145,7 @@ namespace {
       (void) llvm::createDemoteRegisterToMemoryPass();
       (void) llvm::createPruneEHPass();
       (void) llvm::createPolyhedralValueInfoWrapperPass();
+      (void) llvm::createPolyhedralValueTransformerWrapperPass();
       (void) llvm::createPolyhedralAccessInfoWrapperPass();
       (void) llvm::createPolyhedralDependenceInfoWrapperPass();
       (void) llvm::createPostDomOnlyPrinterPass();

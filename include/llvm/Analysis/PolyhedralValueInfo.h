@@ -27,6 +27,7 @@
 
 namespace llvm {
 
+class Region;
 class PolyhedralValueInfo;
 class PolyhedralExpressionBuilder;
 
@@ -336,13 +337,16 @@ public:
   }
 
   /// Return the polyhedral expression of @p V in @p Scope.
-  const PEXP *getPEXP(Value *V, Loop *Scope = nullptr) const;
+  const PEXP *getPEXP(Value *V, Loop *Scope = nullptr,
+                      bool Strict = false, bool NoAlias = false) const;
 
   /// Return the domain of @p BB as polyhedral expression in @p Scope.
-  const PEXP *getDomainFor(BasicBlock *BB, Loop *Scope = nullptr) const;
+  const PEXP *getDomainFor(BasicBlock *BB, Loop *Scope = nullptr,
+                           bool Strict = false, bool NoAlias = false) const;
 
   /// Return the backedge taken count for @p L in @p Scope.
-  const PEXP *getBackedgeTakenCount(const Loop &L, Loop *Scope = nullptr) const;
+  const PEXP *getBackedgeTakenCount(const Loop &L, Loop *Scope = nullptr,
+                                    bool Strict = false, bool NoAlias = false) const;
 
   /// Return the internal context used.
   const PVCtx &getCtx() const { return Ctx; }
@@ -376,26 +380,50 @@ public:
   /// @param Scope  The scope to be checked.
   /// @param Strict Flag to indicate that parameters cannot be in the @p Scope
   ///               even if they do not vary for one iteration of the @p Scope.
-  bool isVaryingInScope(Instruction &I, Loop *Scope, bool Strict) const;
+  bool isVaryingInScope(Instruction &I, const Region &RegionScope, bool Strict,
+                        bool NoAlias = false) const;
+  /// Return true if @p I is (potentialy) varying in @p Scope.
+  ///
+  /// @param I      The instruction to be checked.
+  /// @param Scope  The scope to be checked.
+  /// @param Strict Flag to indicate that parameters cannot be in the @p Scope
+  ///               even if they do not vary for one iteration of the @p Scope.
+  bool isVaryingInScope(Instruction &I, Loop *Scope, bool Strict,
+                        bool NoAlias = false) const;
 
   /// Return true if @p V is fixed for one iteration of @p Scope. If @p Strict
   /// is set, @p V does not depend on any instructions in @p Scope, otherwise it
   /// can if the instructions have a fixed, thus unchanging, value in one
   /// iteration of @p Scope.
-  bool hasScope(Value &V, Loop *Scope, bool Strict) const;
+  bool hasScope(Value &V, const Region &RegionScope, bool Strict,
+                bool NoAlias = false) const;
+
+  /// Return true if @p V is fixed for one iteration of @p Scope. If @p Strict
+  /// is set, @p V does not depend on any instructions in @p Scope, otherwise it
+  /// can if the instructions have a fixed, thus unchanging, value in one
+  /// iteration of @p Scope.
+  bool hasScope(const PEXP *PE, const Region &RegionScope, bool Strict,
+                bool NoAlias = false) const;
+
+
+  /// Return true if @p V is fixed for one iteration of @p Scope. If @p Strict
+  /// is set, @p V does not depend on any instructions in @p Scope, otherwise it
+  /// can if the instructions have a fixed, thus unchanging, value in one
+  /// iteration of @p Scope.
+  bool hasScope(Value &V, Loop *Scope, bool Strict, bool NoAlias = false) const;
 
   /// Return true if @p PE represents a value that is fixed for one iteration of
   /// @p Scope. If @p Strict is set, @p PE is not parametric in an
   /// instruction in @p Scope, otherwise it can be if the instructions have a
   /// fixed, thus unchanging, value in one iteration of @p Scope.
-  bool hasScope(const PEXP *PE, Loop *Scope, bool Strict) const;
+  bool hasScope(const PEXP *PE, Loop *Scope, bool Strict, bool NoAlias = false) const;
 
   /// Return true if @p PE represents a value that is fixed for one function
   /// invocation. If @p Strict is set, @p PE is not parametric in any
   /// instruction, otherwise it can be if the instructions have a fixed,
   /// thus unchanging, value in one function invocation.
-  bool hasFunctionScope(const PEXP *PE, bool Strict) const {
-    return hasScope(PE, nullptr, Strict);
+  bool hasFunctionScope(const PEXP *PE, bool Strict, bool NoAlias = false) const {
+    return hasScope(PE, nullptr, Strict, NoAlias);
   }
 
   unsigned getNumPieces(const PEXP *PE) const;
@@ -406,10 +434,12 @@ public:
   bool mayBeInfinite(Loop &L) const;
 
   /// Return the unknown ids referenced by @p PE  in @p Values.
-  void getParameters(const PEXP *PE, SmallVectorImpl<PVId> &Values) const;
+  void getParameters(const PEXP *PE, SmallVectorImpl<PVId> &Values,
+                     bool Recursive = true) const;
 
   /// Return the unknown values referenced by @p PE  in @p Values.
-  void getParameters(const PEXP *PE, SmallVectorImpl<Value *> &Values) const;
+  void getParameters(const PEXP *PE, SmallVectorImpl<Value *> &Values,
+                     bool Recursive = true) const;
 
   /// Return true if the @p Pred relation between @p LHS and @p RHS is known to
   /// hold at @p IP with regards to @p Scope.

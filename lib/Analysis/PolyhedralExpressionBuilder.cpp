@@ -36,13 +36,19 @@ bool PolyhedralExpressionBuilder::combine(PEXP *PE, const PEXP *Other) {
 
   PVSet OtherID = Other->getInvalidDomain();
   if (OtherID) {
-    adjustDomainDimensions(OtherID, Other, PE);
+    if (!adjustDomainDimensions(OtherID, Other, PE)) {
+      PE->invalidate();
+      return false;
+    }
     PE->addInvalidDomain(OtherID);
   }
 
   PVSet OtherKD = Other->getKnownDomain();
   if (OtherKD) {
-    adjustDomainDimensions(OtherKD, Other, PE);
+    if (!adjustDomainDimensions(OtherKD, Other, PE)) {
+      PE->invalidate();
+      return false;
+    }
     PE->addKnownDomain(OtherKD);
   }
 
@@ -291,7 +297,7 @@ PEXP *PolyhedralExpressionBuilder::getDomain(BasicBlock &BB) {
   };
 
   unsigned LD = getRelativeLoopDepth(&BB);
-  PE->setDomain(PVSet::empty(PI.getCtx(), LD));
+  PE->setDomain(PVSet::empty(PI.getCtx(), LD), true);
 
   for (auto *PredBB : predecessors(&BB)) {
     DEBUG(dbgs() << " Predecessor: " << PredBB->getName() << "\n");
@@ -323,7 +329,11 @@ PEXP *PolyhedralExpressionBuilder::getDomain(BasicBlock &BB) {
 
     PVAff PredDomPWA = PredDomPE->getPWA();
     PredDomPWA.intersectDomain(DomainOnEdge);
-    adjustDomainDimensions(PredDomPWA, PredDomPE, PE);
+    if (!adjustDomainDimensions(PredDomPWA, PredDomPE, PE)) {
+      DEBUG(dbgs() << "  Could not adjust predecessor domain!\n");
+      ForgetDomainsInLoop(*L);
+      return PE->invalidate();
+    }
     PE->PWA.union_add(PredDomPWA);
 
     // Sanity check
@@ -350,7 +360,8 @@ PEXP *PolyhedralExpressionBuilder::getDomain(BasicBlock &BB) {
     return PE;
   }
 
-#if 0
+//#if 0
+  PVSet Domain = PE->getDomain();
   PVSet NonExitDom = Domain.setInputLowerBound(LD - 1, 0);
   DEBUG(dbgs() << "NonExitDom :" << NonExitDom << "\n");
   PE->setDomain(NonExitDom, true);
@@ -374,14 +385,14 @@ PEXP *PolyhedralExpressionBuilder::getDomain(BasicBlock &BB) {
     PVSet ExitCond;
     for (auto *SuccBB : successors(ExitingBB))
       if (!L->contains(SuccBB)) {
-        PEXP *ExitingPE = getDomainOnEdge(*ExitingBBDomainPE, *SuccBB);
-        if (!ExitingPE || ExitingPE->PWA.isComplex()) {
+        PVSet DomainOnEdge;
+        if (!getDomainOnEdge(DomainOnEdge, *ExitingBBDomainPE, *SuccBB) ||
+            DomainOnEdge.isComplex()) {
           ForgetDomainsInLoop(*L);
           return PE->invalidate();
         }
-        combine(PE, ExitingPE);
-        ExitCond.unify(ExitingPE->getDomain());
-        delete ExitingPE;
+        //combine(PE, DomainOnEdge);
+        ExitCond.unify(DomainOnEdge);
       }
     DEBUG(dbgs() << "ExitCond: " << ExitCond << "\n");
     ExitingBBDom.intersect(ExitCond);
@@ -404,21 +415,24 @@ PEXP *PolyhedralExpressionBuilder::getDomain(BasicBlock &BB) {
   DEBUG(dbgs() << "Dom :" << Domain << "\n");
   Domain.unify(NonExitDom);
   DEBUG(dbgs() << "Dom :" << Domain << "\n");
-#endif
+//#endif
 
-  PVSet UnboundedDomain, Domain;
-  Domain = PE->getDomain();
-  Domain.restrictToBoundedPart(LD - 1, &UnboundedDomain);
-  PE->addInvalidDomain(UnboundedDomain);
+  //PVSet UnboundedDomain, Domain;
+  //Domain = PE->getDomain();
+  //Domain.restrictToBoundedPart(LD - 1, &UnboundedDomain);
+  //PE->addInvalidDomain(UnboundedDomain);
 
-  if (Domain.isEmpty())
-    PE->invalidate();
-  else
-    PE->setDomain(Domain, true);
+  //if (Domain.isEmpty())
+    //PE->invalidate();
+  //else
+    //PE->setDomain(Domain, true);
 
   ForgetDomainsInLoop(*L);
 
   NUM_DOMAINS++;
+  PE->PWA.dropUnusedParameters();
+  PE->KnownDomain.dropUnusedParameters();
+  PE->InvalidDomain.dropUnusedParameters();
   return PE;
 }
 
@@ -441,6 +455,7 @@ bool PolyhedralExpressionBuilder::getDomainOnEdge(PVSet &DomainOnEdge,
                << "\nEdgeCond: " << EdgeCondition << "\n");
 
   DomainOnEdge = PVSet::intersect(PredDomain, EdgeCondition);
+  DomainOnEdge.dropUnusedParameters();
   return true;
 }
 
@@ -508,6 +523,9 @@ PEXP *PolyhedralExpressionBuilder::visit(Value &V) {
   if (PI.isAffine(PE))
     NUM_EXPRESSIONS++;
 
+  PE->PWA.dropUnusedParameters();
+  PE->KnownDomain.dropUnusedParameters();
+  PE->InvalidDomain.dropUnusedParameters();
   return PE;
 }
 
@@ -567,7 +585,7 @@ Loop *PolyhedralExpressionBuilder::getLoopForPE(const PEXP *PE) {
 }
 
 template <typename PVTy>
-void PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj,
+bool PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj,
                                                          const PEXP *OldPE,
                                                          const PEXP *NewPE,
                                                          bool LastIt) {
@@ -581,17 +599,17 @@ void PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj,
 /// This function assumes @p NewL and @p OldL are equal or there is a CFG
 /// edge from @p OldL to @p NewL.
 template<typename PVTy>
-void PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj, Loop *OldL,
+bool PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj, Loop *OldL,
                                                          Loop *NewL,
                                                          bool LastIt) {
   // If the loops are the same there is nothing to do.
   if (NewL == OldL)
-    return;
+    return true;
 
   unsigned OldDepth = getRelativeLoopDepth(OldL);
   unsigned NewDepth = getRelativeLoopDepth(NewL);
   if (OldDepth == NewDepth && OldDepth == 0)
-    return;
+    return true;
 
   // Sanity check
   DEBUG(dbgs() << " OldDepth: " << OldDepth << " NewDepth: " << NewDepth
@@ -609,6 +627,8 @@ void PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj, Loop *OldL,
     assert(OldL->getParentLoop() == NewL->getParentLoop());
     if (LastIt)
       Obj.maxInLastInputDims(1);
+    if (!Obj)
+      return false;
     Obj.dropLastInputDims(1);
     Obj.addInputDims(1);
   } else if (OldDepth < NewDepth) {
@@ -619,8 +639,12 @@ void PolyhedralExpressionBuilder::adjustDomainDimensions(PVTy &Obj, Loop *OldL,
     unsigned DepthDiff = OldDepth - NewDepth;
     if (LastIt)
       Obj.maxInLastInputDims(DepthDiff);
+    if (!Obj)
+      return false;
     Obj.dropLastInputDims(DepthDiff);
   }
+
+  return true;
 }
 
 PEXP *PolyhedralExpressionBuilder::visit(Instruction &I) {
@@ -634,6 +658,10 @@ PEXP *PolyhedralExpressionBuilder::visit(Instruction &I) {
   unsigned NumDims = PE->PWA.getNumInputDimensions();
   DEBUG(dbgs() << "RelLD: " << RelLD << " NumDims " << NumDims << "\n\t => "
                << PE << "\n");
+  // TODO FIXME:
+  if (NumDims > RelLD) {
+    return PE->invalidate();
+  }
   assert(NumDims <= RelLD);
   PE->PWA.addInputDims(RelLD - NumDims);
   assert(PE->PWA.getNumInputDimensions() == RelLD);
@@ -736,7 +764,8 @@ PolyhedralExpressionBuilder::visitGetElementPtrInst(GetElementPtrInst &I) {
 
   auto *PE = getOrCreatePEXP(I);
   *PE = *PtrPE;
-  adjustDomainDimensions(PE->PWA, PtrPE, PE, true);
+  if (!adjustDomainDimensions(PE->PWA, PtrPE, PE, true))
+    return visitParameter(I);
 
   auto *Ty = I.getPointerOperandType();
   for (auto &Op : make_range(I.idx_begin(), I.idx_end())) {
@@ -756,6 +785,7 @@ PolyhedralExpressionBuilder::visitGetElementPtrInst(GetElementPtrInst &I) {
         const StructLayout *Layout = DL.getStructLayout(cast<StructType>(Ty));
         auto ElementOffset = Layout->getElementOffset(StructElementNo);
         PVAff Offset(PE->PWA, ElementOffset);
+        PE->PWA.add(Offset);
         Ty = Ty->getStructElementType(StructElementNo);
         continue;
       }
@@ -923,14 +953,26 @@ PEXP *PolyhedralExpressionBuilder::visitConditionalPHINode(PHINode &I) {
 
     PVAff PredOpPWA = PredOpPE->getPWA();
     PredOpPWA.intersectDomain(DomainOnEdge);
-    adjustDomainDimensions(PredOpPWA, PredDomPE, PE, true);
+
+    if (PredOpPWA.getDomain().isEmpty())
+      continue;
+
+    if (!adjustDomainDimensions(PredOpPWA, PredDomPE, PE, true))
+      return visitParameter(I);
     PE->PWA.union_add(PredOpPWA);
+    DEBUG(dbgs() << "  After operand no " << u << ": " << PE << "\n");
 
     // Sanity check
     assert(PE->getPWA().getNumInputDimensions() == RelLD);
+
+    if (PE->getPWA().isComplex()) {
+      DEBUG(dbgs() << "Too complex PHI!\n";);
+      COMPLEX_DOMAIN++;
+      return visitParameter(I);
+    }
   }
 
-  if (!PE->isInitialized()) {
+  if (!PE->isInitialized() || PE->getDomain().isEmpty()) {
     // No valid predecessor found.
     return visitParameter(I);
   }
@@ -957,6 +999,12 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
   if (!IsLoopHeader)
     return visitConditionalPHINode(I);
 
+  unsigned NumLatches = L->getNumBackEdges();
+  if (NumLatches > 1) {
+    DEBUG(dbgs() << "TODO revisit multiple latch loops!\n");
+    return visitParameter(I);
+  }
+
   PEXP *ParamPE = PIC.getOrCreatePEXP(I, L);
   assert(ParamPE);
 
@@ -967,7 +1015,6 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
   }
 
   PEXP *PE = getOrCreatePEXP(I);
-  assert(PE && !PE->isInitialized());
 
   if (Scope == L || (Scope && !Scope->contains(&I))) {
     DEBUG(dbgs() << "PHI not in scope. Parametric value is sufficent!\n");
@@ -975,14 +1022,25 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
     return PE;
   }
 
+  if (!PE || PE->isInitialized()) {
+    errs() << "Ooo. " << PE << " : " << I << "\n";
+    if (PE)
+      PE->dump();
+  }
+  assert(PE && !PE->isInitialized());
+  PE->PWA = PVAff(Id);
+  PE->setKind(PEXP::EK_UNKNOWN_VALUE);
+
   unsigned LoopDim = getRelativeLoopDepth(L);
 
   auto OldScope = Scope;
   setScope(L);
 
-  bool ConstantStride = true;
   PVAff BackEdgeOp;
-  unsigned NumLatches = L->getNumBackEdges();
+
+  PVSet NegationSet;
+  bool OtherPHIs = false;
+  SmallVector<std::pair<PVId, PVAff>, 4> PHIInfos;
   for (unsigned u = 0, e = I.getNumIncomingValues(); u != e; u++) {
     auto *OpBB = I.getIncomingBlock(u);
     if (!L->contains(OpBB))
@@ -991,7 +1049,75 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
     auto *OpVal = I.getIncomingValue(u);
     auto *OpPE = visit(*OpVal);
     PVAff OpAff = OpPE->getPWA();
-    OpAff.dropParameter(Id);
+    DEBUG(dbgs() << "PHI operand (" << u << ") aff in loop: " << OpAff << "\n");
+
+    bool SelfRecurrent = false;
+    SmallVector<PVId, 4> Parameters;
+    OpAff.getParameters(Parameters);
+    for (const PVId &ParameterId : Parameters) {
+      Value *ParameterV = ParameterId.getPayloadAs<Value *>();
+      if (!isa<Instruction>(ParameterV)) {
+        //OpAff.dropParameter(ParameterId);
+        continue;
+      }
+      Instruction *ParameterI = cast<Instruction>(ParameterV);
+      if (!L->contains(ParameterI)) {
+        //OpAff.dropParameter(ParameterId);
+        continue;
+      }
+      if (ParameterV == &I) {
+        SelfRecurrent = true;
+        continue;
+      }
+      if (isa<PHINode>(ParameterI) &&
+          ParameterI->getParent() == I.getParent()) {
+        const PEXP *ParameterPE = PI.getPEXP(ParameterI, OldScope);
+        if (!PI.isAffine(ParameterPE)) {
+          DEBUG(dbgs() << "PHI operand is non-affine loop phi: " << *ParameterI
+                       << "\n => " << ParameterPE << "\n";);
+          setScope(OldScope);
+          return visitParameter(I);
+        }
+        if (!PI.hasScope(ParameterPE, L, true)) {
+          DEBUG(dbgs() << "PHI operand is phi with in loop dependences: "
+                       << *ParameterI << "\n => " << ParameterPE << "\n";);
+          setScope(OldScope);
+          return visitParameter(I);
+        }
+        PVAff ParameterCoeff = OpAff.getParameterCoeff(ParameterId);
+        assert(ParameterCoeff.isInteger());
+        OtherPHIs = true;
+        PHIInfos.push_back(
+            {ParameterId, ParameterCoeff.multiply(ParameterPE->getPWA())});
+        continue;
+      }
+      DEBUG(dbgs() << "PHI references unknown parameter: " << *ParameterI
+                   << "\n");
+      setScope(OldScope);
+      return visitParameter(I);
+    }
+
+    if (SelfRecurrent) {
+      for (auto &PHIInfo : PHIInfos) {
+        if (PHIInfo.second.involvesInput(LoopDim - 1)) {
+          DEBUG(
+              errs()
+              << "PHI is self reccurent but also involves recurrent other PHI: "
+              << PHIInfo.first << " => " << PHIInfo.second << "\n");
+          setScope(OldScope);
+          return visitParameter(I);
+        }
+      }
+
+      OpAff = OpAff.perPiecePHIEvolution(Id, LoopDim - 1, NegationSet);
+      DEBUG(dbgs() << "After per piece evolution: " << OpAff << "\n");
+      if (!OpAff) {
+        setScope(L->getParentLoop());
+        return visitParameter(I);
+      }
+    }
+
+#if 0
     if (!OpAff.isConstant()) {
       DEBUG(dbgs() << "PHI has non constant stride: " << OpPE << "\n\tfor "
                    << *OpVal << "\n");
@@ -1009,9 +1135,10 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
         setScope(L);
       }
     }
+#endif
 
-    OpAff = OpPE->getPWA();
-    if (NumLatches > 1 || !ConstantStride) {
+    //OpAff = OpPE->getPWA();
+    if (NumLatches > 1 || OtherPHIs) {
       PEXP *OpBBDomPE = getDomain(*OpBB);
       assert(OpBBDomPE);
 
@@ -1031,8 +1158,9 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
     DEBUG(dbgs() << "Back edge Op: " << OpAff << "\n");
     BackEdgeOp.union_add(OpAff);
   }
+  DEBUG(dbgs() << "BackEdgeOp: " << BackEdgeOp << "\n");
 
-  DEBUG(dbgs() << "Final Back edge Op: " << BackEdgeOp << "\n");
+#if 0
   if (ConstantStride) {
     BackEdgeOp = BackEdgeOp.perPiecePHIEvolution(Id, LoopDim - 1);
     if (!BackEdgeOp) {
@@ -1041,8 +1169,14 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
       return visitParameter(I);
     }
   }
+#endif
 
-  DEBUG(dbgs() << "BackEdgeOp: " << BackEdgeOp << "\n");
+  for (auto &PHIInfo : PHIInfos) {
+    BackEdgeOp.dropParameter(PHIInfo.first);
+    BackEdgeOp.add(PHIInfo.second.moveOneIteration(LoopDim - 1));
+  }
+  DEBUG(dbgs() << "Back edge op combined with other PHIs: " << BackEdgeOp
+               << "\n");
 
   PE->PWA = PVAff();
   PE->PWA.union_add(BackEdgeOp);
@@ -1062,7 +1196,7 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
 
     PVAff OpAff = OpPE->getPWA();
     assert(e > NumLatches);
-    if (e - NumLatches > 1 || !ConstantStride) {
+    if (e - NumLatches > 1 || OtherPHIs) {
       PEXP *OpBBDomPE = getDomain(*OpBB);
       assert(OpBBDomPE);
 
@@ -1080,8 +1214,16 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
     combine(PE, OpPE);
   }
 
+  if (NegationSet) {
+    DEBUG(dbgs() << "Negate back value for negation set: " << NegationSet
+                 << "\n");
+    PVAff NegationAff(PE->PWA.getDomain(), 1);
+    NegationAff.union_add(PVAff(NegationSet, -2));
+    PE->PWA.multiply(NegationAff);
+  }
+
   PE->Kind = PEXP::EK_UNKNOWN_VALUE;
-  DEBUG(dbgs() << "PHI: " << PE->PWA << "\n");
+  DEBUG(dbgs() << "Final PHI value: " << PE->PWA << "\n");
 
   return PE;
 }
@@ -1151,8 +1293,10 @@ PEXP *PolyhedralExpressionBuilder::visitBinaryOperator(BinaryOperator &I) {
   // Bit operations
   case Instruction::And:
     if (I.getType()->isIntegerTy(1)) {
-      if (assign(PE, PEOp0, PEOp1, PVAff::createMultiply))
+      if (assign(PE, PEOp0, PEOp1, PVAff::createAdd)) {
+        PE->PWA.floordiv(2);
         PE->PWA.select(getOne(PE->PWA), getZero(PE->PWA));
+      }
       return PE;
     }
     return visitParameter(I);

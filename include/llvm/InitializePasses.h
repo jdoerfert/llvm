@@ -289,6 +289,7 @@ void initializePhysicalRegisterUsageInfoPass(PassRegistry&);
 void initializePlaceBackedgeSafepointsImplPass(PassRegistry&);
 void initializePlaceSafepointsPass(PassRegistry&);
 void initializePolyhedralValueInfoWrapperPassPass(PassRegistry&);
+void initializePolyhedralValueTransformerWrapperPassPass(PassRegistry&);
 void initializePolyhedralAccessInfoWrapperPassPass(PassRegistry&);
 void initializePolyhedralDependenceInfoWrapperPassPass(PassRegistry&);
 void initializePostDomOnlyPrinterPass(PassRegistry&);

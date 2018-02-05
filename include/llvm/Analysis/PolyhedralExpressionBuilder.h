@@ -121,15 +121,20 @@ class PolyhedralExpressionBuilder
   Loop *getLoopForPE(const PEXP *PE);
 
   template <typename PVTy>
-  void adjustDomainDimensions(PVTy &Obj, const PEXP *OldPE, const PEXP *NewPE,
+  bool  adjustDomainDimensions(PVTy &Obj, const PEXP *OldPE, const PEXP *NewPE,
                               bool LastIt = false);
   template <typename PVTy>
-  void adjustDomainDimensions(PVTy &Obj, Loop *OldL, Loop *NewL,
+  bool adjustDomainDimensions(PVTy &Obj, Loop *OldL, Loop *NewL,
                               bool LastIt = false);
 
 public:
   PolyhedralExpressionBuilder(PolyhedralValueInfo &PI)
       : Scope(nullptr), PI(PI) {}
+
+  PolyhedralValueInfoCache& getPolyhedralValueInfoCache() { return PIC; }
+  const PolyhedralValueInfoCache &getPolyhedralValueInfoCache() const {
+    return PIC;
+  }
 
   /// Assign the combination of @p LHS and @p RHS using @p Combinator to @p PE.
   ///

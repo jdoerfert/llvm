@@ -15,6 +15,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/PolyhedralExpressionBuilder.h"
+#include "llvm/Analysis/RegionInfo.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
@@ -258,23 +259,34 @@ PolyhedralValueInfo::PolyhedralValueInfo(PVCtx Ctx, LoopInfo &LI)
 
 PolyhedralValueInfo::~PolyhedralValueInfo() { delete PEBuilder; }
 
-const PEXP *PolyhedralValueInfo::getPEXP(Value *V, Loop *Scope) const {
+const PEXP *PolyhedralValueInfo::getPEXP(Value *V, Loop *Scope, bool Strict,
+                                         bool NoAlias) const {
   PEBuilder->setScope(Scope);
-  return PEBuilder->visit(*V);
+  PEXP *PE = PEBuilder->visit(*V);
+  if (Strict && !hasScope(PE, Scope, Strict, NoAlias))
+    return nullptr;
+  return PE;
 }
 
-const PEXP *PolyhedralValueInfo::getDomainFor(BasicBlock *BB,
-                                              Loop *Scope) const {
+const PEXP *PolyhedralValueInfo::getDomainFor(BasicBlock *BB, Loop *Scope,
+                                              bool Strict, bool NoAlias) const {
   PEBuilder->setScope(Scope);
-  return PEBuilder->getDomain(*BB);
+  PEXP *PE = PEBuilder->getDomain(*BB);
+  if (Strict && !hasScope(PE, Scope, Strict, NoAlias))
+    return nullptr;
+  return PE;
 }
 
 const PEXP *PolyhedralValueInfo::getBackedgeTakenCount(const Loop &L,
-                                                       Loop *Scope) const {
+                                                       Loop *Scope, bool Strict,
+                                                       bool NoAlias) const {
   if (PVIDisable)
     return nullptr;
   PEBuilder->setScope(Scope);
-  return PEBuilder->getBackedgeTakenCount(L);
+  PEXP *PE = PEBuilder->getBackedgeTakenCount(L);
+  if (Strict && !hasScope(PE, Scope, Strict, NoAlias))
+    return nullptr;
+  return PE;
 }
 
 PVId PolyhedralValueInfo::getParameterId(Value &V) const {
@@ -301,14 +313,57 @@ bool PolyhedralValueInfo::isNonAffine(const PEXP *PE) const {
   return PE->Kind == PEXP::EK_NON_AFFINE;
 }
 
+bool PolyhedralValueInfo::isVaryingInScope(Instruction &I,
+                                           const Region &RegionScope,
+                                           bool Strict, bool NoAlias) const {
+  if (!RegionScope.contains(&I))
+    return false;
+  if (Strict)
+    return true;
+  if (I.mayReadFromMemory()) {
+    if (!NoAlias)
+      return true;
+    if (!isa<LoadInst>(I))
+      return true;
+    Value *Ptr = cast<LoadInst>(&I)->getPointerOperand();
+    if (!isa<Instruction>(Ptr))
+      return false;
+    return isVaryingInScope(*cast<Instruction>(Ptr), RegionScope, Strict, NoAlias);
+  }
+
+  Loop *L = nullptr;
+  if (auto *PHI = dyn_cast<PHINode>(&I)) {
+    L = LI.isLoopHeader(PHI->getParent()) ? LI.getLoopFor(PHI->getParent()) : L;
+    if (L)
+      return RegionScope.contains(L);
+  }
+
+  for (Value *Op : I.operands())
+    if (auto *OpI = dyn_cast<Instruction>(Op)) {
+      if (L && L->contains(OpI))
+        continue;
+      if (isVaryingInScope(*OpI, RegionScope, Strict, NoAlias))
+        return true;
+    }
+  return false;
+}
+
 bool PolyhedralValueInfo::isVaryingInScope(Instruction &I, Loop *Scope,
-                                           bool Strict) const {
+                                           bool Strict, bool NoAlias) const {
   if (Scope && !Scope->contains(&I))
     return false;
   if (Strict)
     return true;
-  if (I.mayReadFromMemory())
-    return true;
+  if (I.mayReadFromMemory()) {
+    if (!NoAlias)
+      return true;
+    if (!isa<LoadInst>(I))
+      return true;
+    Value *Ptr = cast<LoadInst>(&I)->getPointerOperand();
+    if (!isa<Instruction>(Ptr))
+      return false;
+    return isVaryingInScope(*cast<Instruction>(Ptr), Scope, Strict, NoAlias);
+  }
 
   Loop *L = nullptr;
   if (auto *PHI = dyn_cast<PHINode>(&I)) {
@@ -323,16 +378,38 @@ bool PolyhedralValueInfo::isVaryingInScope(Instruction &I, Loop *Scope,
     if (auto *OpI = dyn_cast<Instruction>(Op)) {
       if (L && L->contains(OpI))
         continue;
-      if (isVaryingInScope(*OpI, Scope, Strict))
+      if (isVaryingInScope(*OpI, Scope, Strict, NoAlias))
         return true;
     }
   return false;
 }
 
-bool PolyhedralValueInfo::hasScope(Value &V, Loop *Scope,
-                                   bool Strict) const {
+bool PolyhedralValueInfo::hasScope(Value &V, const Region &RegionScope,
+                                   bool Strict, bool NoAlias) const {
   auto *I = dyn_cast<Instruction>(&V);
-  if (!I || !isVaryingInScope(*I, Scope, Strict))
+  if (!I || !isVaryingInScope(*I, RegionScope, Strict, NoAlias))
+    return true;
+
+  DEBUG(dbgs() << "Value " << V << " does not have scope "
+               << RegionScope.getNameStr() << "\n");
+  return false;
+}
+
+bool PolyhedralValueInfo::hasScope(const PEXP *PE, const Region &RegionScope,
+                                   bool Strict, bool NoAlias) const {
+
+  SmallVector<Value *, 4> Values;
+  getParameters(PE, Values);
+  for (Value *V : Values)
+    if (!hasScope(*V, RegionScope, Strict, NoAlias))
+      return false;
+  return true;
+}
+
+bool PolyhedralValueInfo::hasScope(Value &V, Loop *Scope,
+                                   bool Strict, bool NoAlias) const {
+  auto *I = dyn_cast<Instruction>(&V);
+  if (!I || !isVaryingInScope(*I, Scope, Strict, NoAlias))
     return true;
 
   DEBUG(dbgs() << "Value " << V << " does not have scope "
@@ -341,12 +418,12 @@ bool PolyhedralValueInfo::hasScope(Value &V, Loop *Scope,
 }
 
 bool PolyhedralValueInfo::hasScope(const PEXP *PE, Loop *Scope,
-                                   bool Strict) const {
+                                   bool Strict, bool NoAlias) const {
 
   SmallVector<Value *, 4> Values;
   getParameters(PE, Values);
   for (Value *V : Values)
-    if (!hasScope(*V, Scope, Strict))
+    if (!hasScope(*V, Scope, Strict, NoAlias))
       return false;
   return true;
 }
@@ -373,15 +450,53 @@ bool PolyhedralValueInfo::mayBeInfinite(Loop &L) const {
 }
 
 void PolyhedralValueInfo::getParameters(const PEXP *PE,
-                                        SmallVectorImpl<PVId> &Values) const {
+                                        SmallVectorImpl<PVId> &Values,
+                                        bool Recursive) const {
+  unsigned u = Values.size();
   const PVAff &PWA = PE->getPWA();
   PWA.getParameters(Values);
+  if (!Recursive)
+    return;
+
+  unsigned e = Values.size();
+  assert(u <= e);
+  Loop *Scope = PE->getScope();
+  for (; u < e; u++) {
+    Instruction *I = dyn_cast<Instruction>(Values[u].getPayloadAs<Value *>());
+    if (!I || (Scope && !Scope->contains(I)))
+      continue;
+    if (I == PE->getValue())
+      continue;
+    // TODO PHIS
+    if (isa<PHINode>(I) && LI.isLoopHeader(I->getParent()))
+      continue;
+    getParameters(getPEXP(I, Scope, false), Values);
+  }
 }
 
-void PolyhedralValueInfo::getParameters(
-    const PEXP *PE, SmallVectorImpl<Value *> &Values) const {
+void PolyhedralValueInfo::getParameters(const PEXP *PE,
+                                        SmallVectorImpl<Value *> &Values,
+                                        bool Recursive) const {
+  unsigned u = Values.size();
   const PVAff &PWA = PE->getPWA();
   PWA.getParameters(Values);
+  if (!Recursive)
+    return;
+
+  unsigned e = Values.size();
+  assert(u <= e);
+  Loop *Scope = PE->getScope();
+  for (; u < e; u++) {
+    Instruction *I = dyn_cast<Instruction>(Values[u]);
+    if (!I || (Scope && !Scope->contains(I)))
+      continue;
+    if (I == PE->getValue())
+      continue;
+    // TODO PHIS
+    if (isa<PHINode>(I) && LI.isLoopHeader(I->getParent()))
+      continue;
+    getParameters(getPEXP(I, Scope, false), Values);
+  }
 }
 
 bool PolyhedralValueInfo::isKnownToHold(Value *LHS, Value *RHS,
@@ -422,7 +537,21 @@ bool PolyhedralValueInfo::isKnownToHold(Value *LHS, Value *RHS,
   return FalseDomain.isEmpty();
 }
 
-void PolyhedralValueInfo::print(raw_ostream &OS) const {}
+void PolyhedralValueInfo::print(raw_ostream &OS) const {
+  auto &PVIC = PEBuilder->getPolyhedralValueInfoCache();
+  errs() << "\nDOMAINS:\n";
+  for (auto &It : PVIC.domains()) {
+    Loop *L = It.first.second;
+    OS << "V: " << It.first.first->getName() << " in "
+       << (L ? L->getName() : "<max>") << ":\n\t" << It.second << "\n";
+  }
+  errs() << "\nVALUES:\n";
+  for (auto &It : PVIC) {
+    Loop *L = It.first.second;
+    OS << "V: " << *It.first.first << " in " << (L ? L->getName() : "<max>")
+       << ":\n\t" << It.second << "\n";
+  }
+}
 
 // ------------------------------------------------------------------------- //
 

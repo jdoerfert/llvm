@@ -148,6 +148,8 @@ public:
   PVSet &operator=(PVSet &&Other);
   operator bool() const { return Obj != nullptr; }
 
+  isl_set * getObj() const;
+
   /// Return the number of dimensions of this set.
   size_t getNumInputDimensions() const;
 
@@ -246,6 +248,7 @@ public:
   operator bool() const { return Obj != nullptr; }
 
   bool isEmpty() const;
+  bool isEqual(const PVMap &Map) const;
 
   /// Return the number of input dimensions of this function.
   size_t getNumInputDimensions() const;
@@ -354,9 +357,11 @@ public:
   bool isComplex() const;
   bool isInteger() const;
   bool isConstant() const;
+  bool isEqual(const PVAff &Aff) const;
 
   int getParameterPosition(const PVId &Id) const;
   bool involvesId(const PVId &Id) const;
+  bool involvesInput(unsigned Dim) const;
 
   void addInputDims(unsigned Dims);
   void insertInputDims(unsigned Pos, unsigned Dims);
@@ -395,7 +400,9 @@ public:
   PVSet nonZeroSet() const;
 
   PVAff getParameterCoeff(const PVId &Id);
-  PVAff perPiecePHIEvolution(const PVId &Id, int LD) const;
+  PVAff perPiecePHIEvolution(const PVId &Id, int LD,
+                             PVSet &NegationSet) const;
+  PVAff moveOneIteration(unsigned Dim);
 
   /// Use the intersection of the domain with the set @p S as new domain.
   ///
@@ -406,6 +413,7 @@ public:
 
   PVAff &simplify(const PVSet &S);
 
+  PVSet getEqualDomain(const PVAff &Aff) const;
   PVSet getLessThanDomain(const PVAff &Aff) const;
   PVSet getLessEqualDomain(const PVAff &Aff) const;
   PVSet getGreaterEqualDomain(const PVAff &Aff) const;
