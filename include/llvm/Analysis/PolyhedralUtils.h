@@ -20,15 +20,16 @@ namespace llvm {
 template<typename PVType, bool UseGlobalIdx = false>
 struct NVVMRewriter : public PVRewriter<PVType> {
   enum NVVMDim {
-    NVVMDIM_NONE,
-    NVVMDIM_X,
-    NVVMDIM_Y,
-    NVVMDIM_Z,
-    NVVMDIM_W,
+    NVVMDIM_X = 0,
+    NVVMDIM_Y = 1,
+    NVVMDIM_Z = 2,
+    NVVMDIM_W = 3,
+    NVVMDIM_NONE = 4,
   };
 
   static constexpr unsigned NumNVVMDims = 4;
   NVVMDim NVVMDims[NumNVVMDims] = {NVVMDIM_X, NVVMDIM_Y, NVVMDIM_Z, NVVMDIM_W};
+  std::string NVVMDimNames[NumNVVMDims] = {"x", "y", "z", "w"};
 
   bool isIntrinsic(Value *V, Intrinsic::ID IntrId) {
     auto *Intr = dyn_cast<IntrinsicInst>(V);
@@ -99,54 +100,63 @@ struct NVVMRewriter : public PVRewriter<PVType> {
       const PVId &Id = Obj.getParameter(d);
       auto *IdValue = Id.getPayloadAs<Value *>();
 
-      switch (getBlockOffsetDim(IdValue)) {
-      case NVVMDIM_X:
-        assert(!BlockOffset[0] && "TODO: Handle multiple block "
-                                               "offsets in the same "
-                                               "dimension!\n");
-        BlockOffset[0] = PVId(Id, "nvvm_block_offset_x", IdValue);
-        Obj.setParameter(d, BlockOffset[0]);
+      NVVMDim Dim =getBlockOffsetDim(IdValue);
+      if (Dim >= NumNVVMDims)
         continue;
-      case NVVMDIM_Y:
-        assert(!BlockOffset[1] && "TODO: Handle multiple block "
-                                               "offsets in the same "
-                                               "dimension!\n");
-        BlockOffset[1] = PVId(Id, "nvvm_block_offset_y", IdValue);
-        Obj.setParameter(d, BlockOffset[1]);
-        continue;
-      case NVVMDIM_Z:
-        assert(!BlockOffset[2] && "TODO: Handle multiple block "
-                                               "offsets in the same "
-                                               "dimension!\n");
-        BlockOffset[2] = PVId(Id, "nvvm_block_offset_z", IdValue);
-        Obj.setParameter(d, BlockOffset[2]);
-        continue;
-      case NVVMDIM_W:
-        assert(!BlockOffset[3] && "TODO: Handle multiple block "
-                                               "offsets in the same "
-                                               "dimension!\n");
-        BlockOffset[3] = PVId(Id, "nvvm_block_offset_w", IdValue);
-        Obj.setParameter(d, BlockOffset[3]);
-        continue;
-      case NVVMDIM_NONE:
-        continue;
-      }
+
+      assert(!BlockOffset[Dim] && "TODO: Handle multiple block "
+                                              "offsets in the same "
+                                              "dimension!\n");
+      BlockOffset[Dim] =
+          PVId(Id, "nvvm_block_offset_" + NVVMDimNames[Dim], IdValue);
+      Obj.setParameter(d, BlockOffset[Dim]);
     }
 
     if (!UseGlobalIdx)
       return;
 
+    SmallVector<PVId, 4> ThreadIds;
+    for (const auto &ThreadIdCalls : ThreadIdCallsPerDim)
+      ThreadIds.push_back(ThreadIdCalls.empty() ? PVId() : ThreadIdCalls[0]);
+    rewriteGlobalIdx(Obj, BlockOffset, ThreadIds);
+  }
+
+  void rewriteGlobalIdx(PVSet &Set, ArrayRef<PVId> BlockOffset,
+                        ArrayRef<PVId> ThreadIds) {
+    // TODO
+  }
+
+  void rewriteGlobalIdx(PVMap &Map, ArrayRef<PVId> BlockOffset,
+                        ArrayRef<PVId> ThreadIds) {
+    SmallVector<PVAff, 4> Affs;
+    for (unsigned d = 0, e = Map.getNumOutputDimensions(); d < e ;d++) {
+      Affs.push_back(Map.getPVAffForDim(d));
+      rewriteGlobalIdx(Affs.back(), BlockOffset, ThreadIds);
+    }
+    Map = PVMap(Affs, Map.getOutputId());
+  }
+
+  void rewriteGlobalIdx(PVAff &Aff, ArrayRef<PVId> BlockOffset,
+                        ArrayRef<PVId> ThreadIds) {
     for (unsigned d = 0; d < NumNVVMDims; d++) {
-      if (!BlockOffset[d] || ThreadIdCallsPerDim[d].empty())
+      if (!BlockOffset[d] || !ThreadIds[d])
         continue;
 
-      const PVId &ThreadId = ThreadIdCallsPerDim[d][0];
-      PVId GlobalIdx = PVId(ThreadId, "nvvm_global_id_x", nullptr);
-      PVAff Translator(Obj, 0, 1, ThreadId);
-      Translator.add(PVAff(Obj, 0, 1, BlockOffset[d]));
-      Translator.equateInputDim(0, GlobalIdx);
-      Translator.setInputId(Obj.getOutputId());
-      Obj = Obj.preimage(Translator);
+      const PVId &ThreadId = ThreadIds[d];
+      PVId GlobalIdx =
+          PVId(ThreadId, "nvvm_global_id_" + NVVMDimNames[d], nullptr);
+      PVAff ThreadIdCoeff = Aff.getParameterCoeff(ThreadId);
+      assert(ThreadIdCoeff.isInteger());
+      PVAff BlockOffsetIdCoeff = Aff.getParameterCoeff(BlockOffset[d]);
+      assert(BlockOffsetIdCoeff.isInteger());
+      PVAff MinIdCoeff = ThreadIdCoeff;
+      MinIdCoeff.union_min(BlockOffsetIdCoeff);
+      assert(MinIdCoeff.isInteger());
+
+      Aff = Aff.sub({MinIdCoeff, ThreadId, Aff});
+      Aff = Aff.sub({MinIdCoeff, BlockOffset[d], Aff});
+
+      Aff = Aff.add({MinIdCoeff, GlobalIdx, Aff});
     }
 
   }

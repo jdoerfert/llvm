@@ -172,6 +172,10 @@ public:
   PVSet &simplify(const PVSet &S);
   PVSet &simplifyParameters(const PVSet &S);
 
+  PVSet &neg();
+  PVSet &add(const PVSet &S);
+  PVSet &sub(const PVSet &S);
+
   /// Unify this set inplace with @p S.
   PVSet &unify(const PVSet &S);
 
@@ -235,6 +239,7 @@ public:
   PVMap(const PVMap &Other);
   PVMap(PVMap &&Other) : Obj(Other.Obj) { Other.Obj = nullptr; }
   PVMap(ArrayRef<PVAff> Affs, const PVId &Id);
+  PVMap(const PVAff &Coeff, const PVId &Id, const PVBase &Base);
   PVMap(const PVAff &Aff, long Factor);
   PVMap(const PVId &ValId, const PVId &InputId = PVId(),
         const PVId &OutputId = PVId());
@@ -287,6 +292,8 @@ public:
 
   void dropUnusedParameters();
 
+  PVAff getPVAffForDim(unsigned Dim);
+
   void getParameters(SmallVectorImpl<PVId> &Parameters) const;
   void getParameters(SmallVectorImpl<llvm::Value *> &Parameters) const;
 
@@ -295,6 +302,10 @@ public:
   using IslCombinatorFn = std::function<isl_map *(isl_map *, isl_map *)>;
   using CombinatorFn = std::function<PVMap (const PVMap &, const PVMap &)>;
   static CombinatorFn getCombinatorFn(IslCombinatorFn Fn);
+
+  PVMap &neg();
+  PVMap &add(const PVMap &S);
+  PVMap &sub(const PVMap &S);
 
   PVMap &union_add(const PVMap &PM);
   PVMap &floordiv(int64_t V);
@@ -331,6 +342,7 @@ public:
   PVAff(const PVSet &S);
   PVAff(const PVSet &S, int64_t ConstVal);
   PVAff(const PVBase &Base, unsigned CoeffPos, int64_t CoeffVal, const PVId &Id);
+  PVAff(const PVAff &Coeff, const PVId &Id, const PVBase &Base);
   ///}
 
   ~PVAff();
@@ -360,6 +372,9 @@ public:
   bool isEqual(const PVAff &Aff) const;
 
   int getParameterPosition(const PVId &Id) const;
+  void eliminateParameter(unsigned Pos);
+  void eliminateParameter(const PVId &Id);
+
   bool involvesId(const PVId &Id) const;
   bool involvesInput(unsigned Dim) const;
 
@@ -371,8 +386,13 @@ public:
   void dropUnusedParameters();
 
   PVId getParameter(unsigned No) const;
+  PVAff &setParameter(unsigned No, const PVId &Id);
+
   void getParameters(SmallVectorImpl<PVId> &Parameters) const;
   void getParameters(SmallVectorImpl<llvm::Value *> &Parameters) const;
+
+  void equateParameters(unsigned Pos0, unsigned Pos1);
+  void equateParameters(const PVId &Id0, const PVId &Id1);
 
   PVAff extractFactor(const PVAff &Aff) const;
   int getFactor(const PVAff &Aff) const;
@@ -381,6 +401,7 @@ public:
   PVAff &sub(const PVAff &PV);
   PVAff &multiply(const PVAff &PV);
   PVAff &union_add(const PVAff &PV);
+  PVAff &union_min(const PVAff &PV);
 
   PVAff &select(const PVAff &PV0, const PVAff &PV1);
 

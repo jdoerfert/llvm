@@ -292,6 +292,26 @@ PVSet &PVSet::unify(const PVSet &S) {
   return *this;
 }
 
+PVSet &PVSet::neg() {
+  if (Obj)
+    Obj = isl_set_neg(Obj);
+  return *this;
+}
+
+PVSet &PVSet::add(const PVSet &S) {
+  if (!Obj || !S.Obj)
+    return *this;
+  isl_set *SObj = S;
+  unifySetDimensions(Obj, SObj);
+  Obj = isl_set_sum(Obj, SObj);
+  return *this;
+}
+
+PVSet &PVSet::sub(const PVSet &S) {
+  PVSet SCopy = S;
+  return add(SCopy.neg());
+}
+
 PVSet &PVSet::subtract(const PVSet &S) {
   if (!Obj)
     Obj = isl_set_copy(S.Obj);
@@ -547,6 +567,12 @@ static void adjustDimensionsPlain(isl_map *&Map0, isl_map *&Map1) {
 
 PVMap::PVMap(isl_map *M) : Obj(M) {}
 PVMap::PVMap(const PVMap &Other) : Obj(isl_map_copy(Other.Obj)) {}
+
+PVMap::PVMap(const PVAff &Coeff, const PVId &Id, const PVBase &Base) {
+  PVAff Aff(Coeff, Id, Base);
+  Obj = isl_map_from_pw_aff(Aff);
+}
+
 PVMap::PVMap(ArrayRef<PVAff> Affs, const PVId &Id) {
   if (Affs.empty())
     return;
@@ -749,6 +775,13 @@ void PVMap::dropUnusedParameters() {
   }
 }
 
+PVAff PVMap::getPVAffForDim(unsigned Dim) {
+  isl_pw_multi_aff *PWMA = isl_pw_multi_aff_from_map(isl_map_copy(Obj));
+  isl_pw_aff *PWA = isl_pw_multi_aff_get_pw_aff(PWMA, Dim);
+  isl_pw_multi_aff_free(PWMA);
+  return PWA;
+}
+
 std::string PVMap::str() const {
   char *cstr = isl_map_to_str(Obj);
   if (!cstr)
@@ -813,6 +846,12 @@ PVAff::PVAff(const PVBase &Base, unsigned CoeffPos, int64_t CoeffVal,
 }
 
 PVAff::PVAff(const PVAff &Other) : Obj(isl_pw_aff_copy(Other.Obj)) {}
+
+PVAff::PVAff(const PVAff &Coeff, const PVId &Id, const PVBase &Base)
+    : PVAff(Base, 0, 1, Id) {
+  assert(Coeff.isInteger());
+  multiply(Coeff);
+}
 
 PVAff::~PVAff() { isl_pw_aff_free(Obj); }
 
@@ -884,6 +923,11 @@ PVId PVAff::getParameter(unsigned No) const {
   return PVId(isl_pw_aff_get_dim_id(Obj, isl_dim_param, No));
 }
 
+PVAff &PVAff::setParameter(unsigned No, const PVId &Id) {
+  Obj = isl_pw_aff_set_dim_id(Obj, isl_dim_param, No, Id);
+  return *this;
+}
+
 void PVAff::getParameters(SmallVectorImpl<PVId> &Parameters) const {
   size_t NumParams = getNumParameters();
   Parameters.reserve(Parameters.size() + NumParams);
@@ -905,6 +949,31 @@ int PVAff::getParameterPosition(const PVId &Id) const {
   int Pos = isl_set_find_dim_by_id(Params, isl_dim_param, Id);
   isl_set_free(Params);
   return Pos;
+}
+
+void PVAff::eliminateParameter(const PVId &Id) {
+  int Pos = getParameterPosition(Id);
+  assert(Pos >= 0);
+  return eliminateParameter(Pos);
+}
+
+void PVAff::eliminateParameter(unsigned Pos) {
+  Obj = isl_pw_aff_drop_dims(Obj, isl_dim_param, Pos, 1);
+}
+
+void PVAff::equateParameters(unsigned Pos0, unsigned Pos1) {
+  assert(Pos0 < getNumParameters() && Pos1 < getNumParameters());
+  Obj = isl_pw_aff_intersect_params(Obj, isl_set_equate(isl_pw_aff_params(Obj),
+                                                        isl_dim_param, Pos0,
+                                                        isl_dim_param, Pos1));
+}
+
+void PVAff::equateParameters(const PVId &Id0, const PVId &Id1) {
+  int Pos0 = getParameterPosition(Id0);
+  int Pos1 = getParameterPosition(Id1);
+  if (Pos0 < 0 || Pos1 < 0)
+    return;
+  return equateParameters(Pos0, Pos1);
 }
 
 bool PVAff::involvesId(const PVId &Id) const {
@@ -1144,6 +1213,11 @@ PVAff &PVAff::union_add(const PVAff &PV) {
   return *this;
 }
 
+PVAff &PVAff::union_min(const PVAff &PV) {
+  Obj = getCombinatorFn(isl_pw_aff_union_min)(Obj, PV);
+  return *this;
+}
+
 PVAff &PVAff::select(const PVAff &PV0, const PVAff &PV1) {
   isl_pw_aff *PV0Obj = PV0;
   isl_pw_aff *PV1Obj = PV1;
@@ -1182,9 +1256,9 @@ static isl_stat getParameterAff(isl_set *Domain, isl_aff *Aff, void *User) {
 PVAff PVAff::getParameterCoeff(const PVId &Id) {
   int Pos = getParameterPosition(Id);
   if (Pos < 0)
-    return PVAff();
+    return PVAff(Id, 0);
 
-  ParameterInfo PI = {PVAff(), Pos};
+  ParameterInfo PI = {PVAff(Id, 0), Pos};
   isl_stat Success = isl_pw_aff_foreach_piece(Obj, getParameterAff, &PI);
   (void) Success;
   assert(Success == isl_stat_ok);
