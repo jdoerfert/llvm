@@ -221,6 +221,10 @@ bool PVSet::isComplex() const {
   return Complex;
 }
 
+PVSet PVSet::getParameterSet() const {
+  return isl_set_params(isl_set_copy(Obj));
+}
+
 int PVSet::getParameterPosition(const PVId &Id) const {
   int Pos = isl_set_find_dim_by_id(Obj, isl_dim_param, Id);
   return Pos;
@@ -1165,9 +1169,8 @@ PVAff &PVAff::simplify(const PVSet &S) {
   if (DimDiff > 0) {
     unsigned Dim = S.getNumInputDimensions() - DimDiff;
     Set = S;
-    Set = isl_set_project_out(Set, isl_dim_set, Dim, getNumInputDimensions() - Dim);
-  }
-  else if (DimDiff < 0)
+    Set = isl_set_project_out(Set, isl_dim_set, Dim, DimDiff);
+  } else if (DimDiff < 0)
     Set = isl_set_add_dims(S, isl_dim_set, -DimDiff);
   else
     Set = S;
@@ -1183,6 +1186,7 @@ PVAff &PVAff::simplify(const PVSet &S) {
   //S.intersect(isl_set_copy(OkCtx));
   OkCtx = isl_set_add_dims(OkCtx, isl_dim_set, getNumInputDimensions());
   Obj = isl_pw_aff_gist(Obj, OkCtx);
+  Obj = isl_pw_aff_coalesce(Obj);
   dropUnusedParameters();
   return *this;
 }
@@ -1215,6 +1219,11 @@ PVAff &PVAff::union_add(const PVAff &PV) {
 
 PVAff &PVAff::union_min(const PVAff &PV) {
   Obj = getCombinatorFn(isl_pw_aff_union_min)(Obj, PV);
+  return *this;
+}
+
+PVAff &PVAff::union_max(const PVAff &PV) {
+  Obj = getCombinatorFn(isl_pw_aff_union_max)(Obj, PV);
   return *this;
 }
 

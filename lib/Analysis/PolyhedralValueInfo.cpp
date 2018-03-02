@@ -21,6 +21,9 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "isl/ast.h"
+#include "isl/ast_build.h"
+
 #include <cassert>
 
 using namespace llvm;
@@ -354,6 +357,9 @@ bool PolyhedralValueInfo::isVaryingInScope(Instruction &I, Loop *Scope,
     return false;
   if (Strict)
     return true;
+  Loop *L = LI.getLoopFor(I.getParent());
+  if (L == Scope)
+    return false;
   if (I.mayReadFromMemory()) {
     if (!NoAlias)
       return true;
@@ -365,7 +371,6 @@ bool PolyhedralValueInfo::isVaryingInScope(Instruction &I, Loop *Scope,
     return isVaryingInScope(*cast<Instruction>(Ptr), Scope, Strict, NoAlias);
   }
 
-  Loop *L = nullptr;
   if (auto *PHI = dyn_cast<PHINode>(&I)) {
     if (Scope && PHI->getParent() == Scope->getHeader())
       return false;
@@ -551,6 +556,30 @@ void PolyhedralValueInfo::print(raw_ostream &OS) const {
     OS << "V: " << *It.first.first << " in " << (L ? L->getName() : "<max>")
        << ":\n\t" << It.second << "\n";
   }
+
+
+  PVSet DomS, DomT;
+  for (BasicBlock &BB : *(*LI.begin())->getHeader()->getParent()) {
+    if (BB.getName() == "S")
+      DomS = getDomainFor(&BB)->getDomain();
+    if (BB.getName() == "T")
+      DomT = getDomainFor(&BB)->getDomain();
+  }
+
+  OS<< "\n\nDomS: " << DomS << "\nDomT: " << DomT <<"\n";
+  DomT = DomT.dropLastInputDims(1);
+  OS<< "DomT: " << DomT <<"\n";
+  PVSet R = DomS;
+  R.subtract(DomT);
+  OS << "R: " << R << " DomS: " << DomS << "\n";
+  R.dropUnusedParameters();
+  DomS.dropUnusedParameters();
+  R = R.simplify(DomS);
+  OS << "R: "<<R<<"\n";
+
+  auto *ASTB = isl_ast_build_from_context(isl_set_params(DomS.getObj()));
+  auto *RExp = isl_ast_build_expr_from_set(ASTB, isl_set_params(R.getObj()));
+  isl_ast_expr_dump(RExp);
 }
 
 // ------------------------------------------------------------------------- //

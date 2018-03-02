@@ -169,6 +169,8 @@ public:
 
   void dropUnusedParameters();
 
+  PVSet getParameterSet() const;
+
   PVSet &simplify(const PVSet &S);
   PVSet &simplifyParameters(const PVSet &S);
 
@@ -402,6 +404,7 @@ public:
   PVAff &multiply(const PVAff &PV);
   PVAff &union_add(const PVAff &PV);
   PVAff &union_min(const PVAff &PV);
+  PVAff &union_max(const PVAff &PV);
 
   PVAff &select(const PVAff &PV0, const PVAff &PV1);
 
@@ -433,6 +436,7 @@ public:
   PVAff &intersectDomain(const PVSet &S);
 
   PVAff &simplify(const PVSet &S);
+  PVAff &simplifyParameters(const PVSet &S);
 
   PVSet getEqualDomain(const PVAff &Aff) const;
   PVSet getLessThanDomain(const PVAff &Aff) const;

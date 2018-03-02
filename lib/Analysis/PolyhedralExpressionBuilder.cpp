@@ -159,6 +159,7 @@ PEXP *PolyhedralExpressionBuilder::getBackedgeTakenCount(const Loop &L) {
   else
     PE->PWA = PVAff::getBackEdgeTakenCountFromDomain(HeaderBBDom);
 
+  PE->PWA.simplify(HeaderBBDom);
   PE->setKind(PE->PWA.isInteger() ? PEXP::EK_INTEGER : PEXP::EK_UNKNOWN_VALUE);
 
   DEBUG(dbgs() << "Backedge taken count for " << L.getName() << "\n\t=>" << PE
@@ -215,10 +216,13 @@ bool PolyhedralExpressionBuilder::getEdgeCondition(PVSet &EdgeCondition,
 
   auto *Int64Ty = Type::getInt64Ty(TI.getContext());
   if (isa<BranchInst>(TI)) {
+    EdgeCondition = PVSet::empty(EdgeCondition);
     if (TI.getSuccessor(0) == &BB)
-      EdgeCondition = buildEqualDomain(TermPE, *ConstantInt::get(Int64Ty, 1));
+      EdgeCondition.unify(
+          buildEqualDomain(TermPE, *ConstantInt::get(Int64Ty, 1)));
     if (TI.getSuccessor(1) == &BB)
-      EdgeCondition.unify(buildEqualDomain(TermPE, *ConstantInt::get(Int64Ty, 0)));
+      EdgeCondition.unify(
+          buildEqualDomain(TermPE, *ConstantInt::get(Int64Ty, 0)));
     return true;
   }
 
@@ -334,7 +338,7 @@ PEXP *PolyhedralExpressionBuilder::getDomain(BasicBlock &BB) {
       ForgetDomainsInLoop(*L);
       return PE->invalidate();
     }
-    PE->PWA.union_add(PredDomPWA);
+    PE->PWA.union_max(PredDomPWA);
 
     // Sanity check
     assert(PE->PWA.getNumInputDimensions() == LD);
@@ -425,7 +429,7 @@ PEXP *PolyhedralExpressionBuilder::getDomain(BasicBlock &BB) {
   //if (Domain.isEmpty())
     //PE->invalidate();
   //else
-    //PE->setDomain(Domain, true);
+    PE->setDomain(Domain, true);
 
   ForgetDomainsInLoop(*L);
 
