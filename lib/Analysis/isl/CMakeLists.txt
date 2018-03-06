@@ -191,6 +191,19 @@ set (ISL_INTERNAL_FILES
   polyhedron_sample.c
   polytope_scan.c
   print_templ.c
+  set_to_map.c
+  schedule.c
+  pip.c
+  isl_tab_lexopt_templ.c
+  flow_cmp.c
+  flow.c
+  extract_key.c
+  read_in_string_templ.c
+  print_templ_yaml.c
+  schedule_cmp.c
+  set_from_map.c
+  bset_to_bmap.c
+  bset_from_bmap.c
 )
 
 set(LLVM_OPTIONAL_SOURCES ISLInternal ${ISL_INTERNAL_FILES})
@@ -253,6 +266,7 @@ set (ISL_FILES
     isl_scan.c
     isl_schedule.c
     isl_schedule_band.c
+    isl_schedule_constraints.c
     isl_schedule_node.c
     isl_schedule_read.c
     isl_schedule_tree.c
@@ -272,7 +286,6 @@ set (ISL_FILES
     isl_vec.c
     isl_version.c
     isl_vertices.c
-    pip.c
     print.c
     imath/gmp_compat.c
     imath/imath.c

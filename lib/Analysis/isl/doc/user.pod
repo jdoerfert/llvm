@@ -253,6 +253,23 @@ is now obtained by turning on the C<schedule_serialize_sccs> option.
 
 =back
 
+=head3 Changes since isl-0.17
+
+=over
+
+=item * The function C<isl_printer_print_ast_expr> no longer prints
+in C format by default.  To print in C format, the output format
+of the printer needs to have been explicitly set to C<ISL_FORMAT_C>.
+As a result, the function C<isl_ast_expr_to_str> no longer prints
+the expression in C format.  Use C<isl_ast_expr_to_C_str> instead.
+
+=item * The functions C<isl_set_align_divs> and C<isl_map_align_divs>
+have been deprecated.  The function C<isl_set_lift> has an effect
+that is similar to C<isl_set_align_divs> and could in some cases
+be used as an alternative.
+
+=back
+
 =head1 License
 
 C<isl> is released under the MIT license.
@@ -704,6 +721,11 @@ The following binary properties are defined on pairs of C<isl_val>s.
 	isl_bool isl_val_abs_eq(__isl_keep isl_val *v1,
 		__isl_keep isl_val *v2);
 
+Comparisons to NaN always return false.
+That is, a NaN is not considered to hold any relative position
+with respect to any value.  In particular, a NaN
+is neither considered to be equal to nor to be different from
+any value (including another NaN).
 The function C<isl_val_abs_eq> checks whether its two arguments
 are equal in absolute value.
 
@@ -751,6 +773,8 @@ The following binary operations are available on C<isl_val>s.
 		unsigned long v2);
 	__isl_give isl_val *isl_val_div(__isl_take isl_val *v1,
 		__isl_take isl_val *v2);
+	__isl_give isl_val *isl_val_div_ui(__isl_take isl_val *v1,
+		unsigned long v2);
 
 On integer values, we additionally have the following operations.
 
@@ -940,6 +964,12 @@ Spaces can be compared using the following functions:
 	#include <isl/space.h>
 	isl_bool isl_space_is_equal(__isl_keep isl_space *space1,
 		__isl_keep isl_space *space2);
+	isl_bool isl_space_has_equal_params(
+		__isl_keep isl_space *space1,
+		__isl_keep isl_space *space2);
+	isl_bool isl_space_has_equal_tuples(
+		__isl_keep isl_space *space1,
+		__isl_keep isl_space *space2);
 	isl_bool isl_space_is_domain(__isl_keep isl_space *space1,
 		__isl_keep isl_space *space2);
 	isl_bool isl_space_is_range(__isl_keep isl_space *space1,
@@ -958,6 +988,19 @@ tuples (C<isl_dim_in>, C<isl_dim_out> or C<isl_dim_set>) of the given
 spaces are the same.  That is, it checks if they have the same
 identifier (if any), the same dimension and the same internal structure
 (if any).
+The function
+C<isl_space_has_equal_params> checks whether two spaces
+have the same parameters in the same order.
+C<isl_space_has_equal_tuples> check whether two spaces have
+the same tuples.  In contrast to C<isl_space_is_equal> below,
+it does not check the
+parameters.  This is useful because many C<isl> functions align the
+parameters before they perform their operations, such that equivalence
+is not necessary.
+C<isl_space_is_equal> checks whether two spaces are identical,
+meaning that they have the same parameters and the same tuples.
+That is, it checks whether both C<isl_space_has_equal_params> and
+C<isl_space_has_equal_tuples> hold.
 
 It is often useful to create objects that live in the
 same space as some other object.  This can be accomplished
@@ -1456,7 +1499,8 @@ using the following functions.
 	isl_bool isl_space_has_tuple_name(
 		__isl_keep isl_space *space,
 		enum isl_dim_type type);
-	const char *isl_space_get_tuple_name(__isl_keep isl_space *space,
+	__isl_keep const char *isl_space_get_tuple_name(
+		__isl_keep isl_space *space,
 		enum isl_dim_type type);
 
 	#include <isl/local_space.h>
@@ -2075,27 +2119,29 @@ variables as integer divisions of the other variables, possibly
 including earlier existentially quantified variables.
 An explicitly represented existentially quantified variable therefore
 has a unique value when the values of the other variables are known.
-If, furthermore, the same existentials, i.e., existentials
-with the same explicit representations, should appear in the
-same order in each of the disjuncts of a set or map, then the user should call
-either of the following functions.
-
-	__isl_give isl_set *isl_set_align_divs(
-		__isl_take isl_set *set);
-	__isl_give isl_map *isl_map_align_divs(
-		__isl_take isl_map *map);
 
 Alternatively, the existentially quantified variables can be removed
 using the following functions, which compute an overapproximation.
 
+	#include <isl/set.h>
 	__isl_give isl_basic_set *isl_basic_set_remove_divs(
 		__isl_take isl_basic_set *bset);
-	__isl_give isl_basic_map *isl_basic_map_remove_divs(
-		__isl_take isl_basic_map *bmap);
 	__isl_give isl_set *isl_set_remove_divs(
 		__isl_take isl_set *set);
+
+	#include <isl/map.h>
+	__isl_give isl_basic_map *isl_basic_map_remove_divs(
+		__isl_take isl_basic_map *bmap);
 	__isl_give isl_map *isl_map_remove_divs(
 		__isl_take isl_map *map);
+
+	#include <isl/union_set.h>
+	__isl_give isl_union_set *isl_union_set_remove_divs(
+		__isl_take isl_union_set *bset);
+
+	#include <isl/union_map.h>
+	__isl_give isl_union_map *isl_union_map_remove_divs(
+		__isl_take isl_union_map *bmap);
 
 It is also possible to only remove those divs that are defined
 in terms of a given range of dimensions or only those for which
@@ -2193,10 +2239,16 @@ from
 	int isl_map_n_basic_map(__isl_keep isl_map *map);
 
 It is also possible to obtain a list of basic sets from a set
+or union set
 
 	#include <isl/set.h>
 	__isl_give isl_basic_set_list *isl_set_get_basic_set_list(
 		__isl_keep isl_set *set);
+
+	#include <isl/union_set.h>
+	__isl_give isl_basic_set_list *
+	isl_union_set_get_basic_set_list(
+		__isl_keep isl_union_set *uset);
 
 The returned list can be manipulated using the functions in L<"Lists">.
 
@@ -2335,7 +2387,8 @@ Points can be copied or freed using
 
 	__isl_give isl_point *isl_point_copy(
 		__isl_keep isl_point *pnt);
-	void isl_point_free(__isl_take isl_point *pnt);
+	__isl_null isl_point *isl_point_free(
+		__isl_take isl_point *pnt);
 
 A singleton set can be created from a point using
 
@@ -3060,6 +3113,8 @@ use the following functions.
 		isl_stat (*fn)(__isl_take isl_set *set,
 			  __isl_take isl_aff *aff,
 			  void *user), void *user);
+	int isl_pw_multi_aff_n_piece(
+		__isl_keep isl_pw_multi_aff *pma);
 	isl_stat isl_pw_multi_aff_foreach_piece(
 		__isl_keep isl_pw_multi_aff *pma,
 		isl_stat (*fn)(__isl_take isl_set *set,
@@ -3067,6 +3122,8 @@ use the following functions.
 			    void *user), void *user);
 
 	#include <isl/polynomial.h>
+	int isl_pw_qpolynomial_n_piece(
+		__isl_keep isl_pw_qpolynomial *pwqp);
 	isl_stat isl_pw_qpolynomial_foreach_piece(
 		__isl_keep isl_pw_qpolynomial *pwqp,
 		isl_stat (*fn)(__isl_take isl_set *set,
@@ -3077,6 +3134,8 @@ use the following functions.
 		isl_stat (*fn)(__isl_take isl_set *set,
 			  __isl_take isl_qpolynomial *qp,
 			  void *user), void *user);
+	int isl_pw_qpolynomial_fold_n_piece(
+		__isl_keep isl_pw_qpolynomial_fold *pwf);
 	isl_stat isl_pw_qpolynomial_fold_foreach_piece(
 		__isl_keep isl_pw_qpolynomial_fold *pwf,
 		isl_stat (*fn)(__isl_take isl_set *set,
@@ -3662,6 +3721,10 @@ Alternatively, a string representation can be obtained
 directly using the following functions, which always print
 in isl format.
 
+	#include <isl/id.h>
+	__isl_give char *isl_id_to_str(
+		__isl_keep isl_id *id);
+
 	#include <isl/space.h>
 	__isl_give char *isl_space_to_str(
 		__isl_keep isl_space *space);
@@ -3672,6 +3735,8 @@ in isl format.
 		__isl_keep isl_multi_val *mv);
 
 	#include <isl/set.h>
+	__isl_give char *isl_basic_set_to_str(
+		__isl_keep isl_basic_set *bset);
 	__isl_give char *isl_set_to_str(
 		__isl_keep isl_set *set);
 
@@ -3680,6 +3745,8 @@ in isl format.
 		__isl_keep isl_union_set *uset);
 
 	#include <isl/map.h>
+	__isl_give char *isl_basic_map_to_str(
+		__isl_keep isl_basic_map *bmap);
 	__isl_give char *isl_map_to_str(
 		__isl_keep isl_map *map);
 
@@ -3703,6 +3770,16 @@ in isl format.
 		__isl_keep isl_union_pw_multi_aff *upma);
 	__isl_give char *isl_multi_union_pw_aff_to_str(
 		__isl_keep isl_multi_union_pw_aff *mupa);
+
+	#include <isl/point.h>
+	__isl_give char *isl_point_to_str(
+		__isl_keep isl_point *pnt);
+
+	#include <isl/polynomial.h>
+	__isl_give char *isl_pw_qpolynomial_to_str(
+		__isl_keep isl_pw_qpolynomial *pwqp);
+	__isl_give char *isl_union_pw_qpolynomial_to_str(
+		__isl_keep isl_union_pw_qpolynomial *upwqp);
 
 =head2 Properties
 
@@ -3913,7 +3990,7 @@ To check whether a set is a parameter domain, use this function:
 =item * Wrapping
 
 The following functions check whether the space of the given
-(basic) set or relation range is a wrapped relation.
+(basic) set or relation domain and/or range is a wrapped relation.
 
 	#include <isl/space.h>
 	isl_bool isl_space_is_wrapping(
@@ -3921,6 +3998,8 @@ The following functions check whether the space of the given
 	isl_bool isl_space_domain_is_wrapping(
 		__isl_keep isl_space *space);
 	isl_bool isl_space_range_is_wrapping(
+		__isl_keep isl_space *space);
+	isl_bool isl_space_is_product(
 		__isl_keep isl_space *space);
 
 	#include <isl/set.h>
@@ -3933,6 +4012,7 @@ The following functions check whether the space of the given
 		__isl_keep isl_map *map);
 	isl_bool isl_map_range_is_wrapping(
 		__isl_keep isl_map *map);
+	isl_bool isl_map_is_product(__isl_keep isl_map *map);
 
 	#include <isl/val.h>
 	isl_bool isl_multi_val_range_is_wrapping(
@@ -3950,6 +4030,10 @@ The input to C<isl_space_is_wrapping> should
 be the space of a set, while that of
 C<isl_space_domain_is_wrapping> and
 C<isl_space_range_is_wrapping> should be the space of a relation.
+The input to C<isl_space_is_product> can be either the space
+of a set or that of a binary relation.
+In case the input is the space of a binary relation, it checks
+whether both domain and range are wrapping.
 
 =item * Internal Product
 
@@ -4006,14 +4090,40 @@ the input is itself a wrapped relation.
 
 Check whether the given expression is a constant.
 
+	#include <isl/val.h>
+	isl_bool isl_multi_val_involves_nan(
+		__isl_keep isl_multi_val *mv);
+
 	#include <isl/aff.h>
 	isl_bool isl_aff_is_nan(__isl_keep isl_aff *aff);
+	isl_bool isl_multi_aff_involves_nan(
+		__isl_keep isl_multi_aff *ma);
 	isl_bool isl_pw_aff_involves_nan(
 		__isl_keep isl_pw_aff *pa);
+	isl_bool isl_pw_multi_aff_involves_nan(
+		__isl_keep isl_pw_multi_aff *pma);
+	isl_bool isl_multi_pw_aff_involves_nan(
+		__isl_keep isl_multi_pw_aff *mpa);
+	isl_bool isl_union_pw_aff_involves_nan(
+		__isl_keep isl_union_pw_aff *upa);
+	isl_bool isl_union_pw_multi_aff_involves_nan(
+		__isl_keep isl_union_pw_multi_aff *upma);
+	isl_bool isl_multi_union_pw_aff_involves_nan(
+		__isl_keep isl_multi_union_pw_aff *mupa);
 
 	#include <isl/polynomial.h>
+	isl_bool isl_qpolynomial_is_nan(
+		__isl_keep isl_qpolynomial *qp);
 	isl_bool isl_qpolynomial_fold_is_nan(
 		__isl_keep isl_qpolynomial_fold *fold);
+	isl_bool isl_pw_qpolynomial_involves_nan(
+		__isl_keep isl_pw_qpolynomial *pwqp);
+	isl_bool isl_pw_qpolynomial_fold_involves_nan(
+		__isl_keep isl_pw_qpolynomial_fold *pwf);
+	isl_bool isl_union_pw_qpolynomial_involves_nan(
+		__isl_keep isl_union_pw_qpolynomial *upwqp);
+	isl_bool isl_union_pw_qpolynomial_fold_involves_nan(
+		__isl_keep isl_union_pw_qpolynomial_fold *upwf);
 
 Check whether the given expression is equal to or involves NaN.
 
@@ -4081,7 +4191,13 @@ return true if the objects are not the same.
 	isl_bool isl_pw_aff_plain_is_equal(
 		__isl_keep isl_pw_aff *pwaff1,
 		__isl_keep isl_pw_aff *pwaff2);
+	isl_bool isl_pw_aff_is_equal(
+		__isl_keep isl_pw_aff *pa1,
+		__isl_keep isl_pw_aff *pa2);
 	isl_bool isl_pw_multi_aff_plain_is_equal(
+		__isl_keep isl_pw_multi_aff *pma1,
+		__isl_keep isl_pw_multi_aff *pma2);
+	isl_bool isl_pw_multi_aff_is_equal(
 		__isl_keep isl_pw_multi_aff *pma1,
 		__isl_keep isl_pw_multi_aff *pma2);
 	isl_bool isl_multi_pw_aff_plain_is_equal(
@@ -4215,10 +4331,14 @@ the internal representation of the inputs has not changed), but may
 change over different versions of C<isl>.
 
 	#include <isl/aff.h>
+	int isl_multi_aff_plain_cmp(
+		__isl_keep isl_multi_aff *ma1,
+		__isl_keep isl_multi_aff *ma2);
 	int isl_pw_aff_plain_cmp(__isl_keep isl_pw_aff *pa1,
 		__isl_keep isl_pw_aff *pa2);
 
-The function C<isl_pw_aff_plain_cmp> can be used to sort
+The functions C<isl_multi_aff_plain_cmp> and
+C<isl_pw_aff_plain_cmp> can be used to sort C<isl_multi_aff>s and
 C<isl_pw_aff>s.  The order is not strictly defined.
 The current order sorts expressions that only involve
 earlier dimensions before those that involve later dimensions.
@@ -4329,6 +4449,9 @@ parameters.
 	#include <isl/aff.h>
 	__isl_give isl_aff *isl_aff_project_domain_on_params(
 		__isl_take isl_aff *aff);
+	__isl_give isl_pw_aff *
+	isl_pw_aff_project_domain_on_params(
+		__isl_take isl_pw_aff *pa);
 	__isl_give isl_pw_multi_aff *
 	isl_pw_multi_aff_project_domain_on_params(
 		__isl_take isl_pw_multi_aff *pma);
@@ -4490,6 +4613,14 @@ flat anonymous space.
 	isl_union_pw_multi_aff_from_domain(
 		__isl_take isl_union_set *uset);
 
+	#include <isl/polynomial.h>
+	__isl_give isl_pw_qpolynomial *
+	isl_pw_qpolynomial_from_range(
+		__isl_take isl_pw_qpolynomial *pwqp);
+	__isl_give isl_pw_qpolynomial_fold *
+	isl_pw_qpolynomial_fold_from_range(
+		__isl_take isl_pw_qpolynomial_fold *pwf);
+
 =item * Slicing
 
 	#include <isl/set.h>
@@ -4537,12 +4668,17 @@ Intersect the set, relation or function domain
 with the hyperplane where the given
 dimension has the fixed given value.
 
-	__isl_give isl_basic_map *isl_basic_map_lower_bound_si(
-		__isl_take isl_basic_map *bmap,
-		enum isl_dim_type type, unsigned pos, int value);
-	__isl_give isl_basic_map *isl_basic_map_upper_bound_si(
-		__isl_take isl_basic_map *bmap,
-		enum isl_dim_type type, unsigned pos, int value);
+	#include <isl/set.h>
+	__isl_give isl_basic_set *
+	isl_basic_set_lower_bound_val(
+		__isl_take isl_basic_set *bset,
+		enum isl_dim_type type, unsigned pos,
+		__isl_take isl_val *value);
+	__isl_give isl_basic_set *
+	isl_basic_set_upper_bound_val(
+		__isl_take isl_basic_set *bset,
+		enum isl_dim_type type, unsigned pos,
+		__isl_take isl_val *value);
 	__isl_give isl_set *isl_set_lower_bound_si(
 		__isl_take isl_set *set,
 		enum isl_dim_type type, unsigned pos, int value);
@@ -4550,9 +4686,6 @@ dimension has the fixed given value.
 		__isl_take isl_set *set,
 		enum isl_dim_type type, unsigned pos,
 		__isl_take isl_val *value);
-	__isl_give isl_map *isl_map_lower_bound_si(
-		__isl_take isl_map *map,
-		enum isl_dim_type type, unsigned pos, int value);
 	__isl_give isl_set *isl_set_upper_bound_si(
 		__isl_take isl_set *set,
 		enum isl_dim_type type, unsigned pos, int value);
@@ -4560,6 +4693,17 @@ dimension has the fixed given value.
 		__isl_take isl_set *set,
 		enum isl_dim_type type, unsigned pos,
 		__isl_take isl_val *value);
+
+	#include <isl/map.h>
+	__isl_give isl_basic_map *isl_basic_map_lower_bound_si(
+		__isl_take isl_basic_map *bmap,
+		enum isl_dim_type type, unsigned pos, int value);
+	__isl_give isl_basic_map *isl_basic_map_upper_bound_si(
+		__isl_take isl_basic_map *bmap,
+		enum isl_dim_type type, unsigned pos, int value);
+	__isl_give isl_map *isl_map_lower_bound_si(
+		__isl_take isl_map *map,
+		enum isl_dim_type type, unsigned pos, int value);
 	__isl_give isl_map *isl_map_upper_bound_si(
 		__isl_take isl_map *map,
 		enum isl_dim_type type, unsigned pos, int value);
@@ -5018,6 +5162,8 @@ NaN if the problem is empty.
 		__isl_take isl_set *set, int pos);
 	__isl_give isl_pw_aff *isl_set_dim_max(
 		__isl_take isl_set *set, int pos);
+	__isl_give isl_pw_aff *isl_map_dim_min(
+		__isl_take isl_map *map, int pos);
 	__isl_give isl_pw_aff *isl_map_dim_max(
 		__isl_take isl_map *map, int pos);
 
@@ -5039,8 +5185,12 @@ Fourier-Motzkin elimination, but this may change or be made optional
 in future.  In particular, future implementations may use different
 dualization algorithms or skip the elimination step.
 
+	#include <isl/set.h>
 	__isl_give isl_basic_set *isl_basic_set_coefficients(
 		__isl_take isl_basic_set *bset);
+	__isl_give isl_basic_set_list *
+	isl_basic_set_list_coefficients(
+		__isl_take isl_basic_set_list *list);
 	__isl_give isl_basic_set *isl_set_coefficients(
 		__isl_take isl_set *set);
 	__isl_give isl_union_set *isl_union_set_coefficients(
@@ -5701,6 +5851,14 @@ the same (number of) parameters.
 	__isl_give isl_map *isl_map_intersect(
 		__isl_take isl_map *map1,
 		__isl_take isl_map *map2);
+	__isl_give isl_map *
+	isl_map_intersect_domain_factor_range(
+		__isl_take isl_map *map,
+		__isl_take isl_map *factor);
+	__isl_give isl_map *
+	isl_map_intersect_range_factor_range(
+		__isl_take isl_map *map,
+		__isl_take isl_map *factor);
 
 	#include <isl/union_set.h>
 	__isl_give isl_union_set *isl_union_set_intersect_params(
@@ -5723,6 +5881,10 @@ the same (number of) parameters.
 	__isl_give isl_union_map *isl_union_map_intersect(
 		__isl_take isl_union_map *umap1,
 		__isl_take isl_union_map *umap2);
+	__isl_give isl_union_map *
+	isl_union_map_intersect_range_factor_range(
+		__isl_take isl_union_map *umap,
+		__isl_take isl_union_map *factor);
 
 	#include <isl/aff.h>
 	__isl_give isl_pw_aff *isl_pw_aff_intersect_domain(
@@ -6168,16 +6330,31 @@ into the first expression.
 	__isl_give isl_set *isl_aff_eq_set(
 		__isl_take isl_aff *aff1,
 		__isl_take isl_aff *aff2);
+	__isl_give isl_set *isl_aff_ne_set(
+		__isl_take isl_aff *aff1,
+		__isl_take isl_aff *aff2);
 	__isl_give isl_basic_set *isl_aff_le_basic_set(
 		__isl_take isl_aff *aff1,
 		__isl_take isl_aff *aff2);
 	__isl_give isl_set *isl_aff_le_set(
 		__isl_take isl_aff *aff1,
 		__isl_take isl_aff *aff2);
+	__isl_give isl_basic_set *isl_aff_lt_basic_set(
+		__isl_take isl_aff *aff1,
+		__isl_take isl_aff *aff2);
+	__isl_give isl_set *isl_aff_lt_set(
+		__isl_take isl_aff *aff1,
+		__isl_take isl_aff *aff2);
 	__isl_give isl_basic_set *isl_aff_ge_basic_set(
 		__isl_take isl_aff *aff1,
 		__isl_take isl_aff *aff2);
 	__isl_give isl_set *isl_aff_ge_set(
+		__isl_take isl_aff *aff1,
+		__isl_take isl_aff *aff2);
+	__isl_give isl_basic_set *isl_aff_gt_basic_set(
+		__isl_take isl_aff *aff1,
+		__isl_take isl_aff *aff2);
+	__isl_give isl_set *isl_aff_gt_set(
 		__isl_take isl_aff *aff1,
 		__isl_take isl_aff *aff2);
 	__isl_give isl_set *isl_pw_aff_eq_set(
@@ -7342,6 +7519,11 @@ Lists can be created, copied, modified and freed using the following functions.
 	__isl_give isl_set_list *isl_set_list_concat(
 		__isl_take isl_set_list *list1,
 		__isl_take isl_set_list *list2);
+	__isl_give isl_set_list *isl_set_list_map(
+		__isl_take isl_set_list *list,
+		__isl_give isl_set *(*fn)(__isl_take isl_set *el,
+			void *user),
+		void *user);
 	__isl_give isl_set_list *isl_set_list_sort(
 		__isl_take isl_set_list *list,
 		int (*cmp)(__isl_keep isl_set *a,
@@ -7572,7 +7754,7 @@ library.
 
 The function C<isl_basic_set_compute_vertices> performs the
 actual computation of the parametric vertices and the chamber
-decomposition and store the result in an C<isl_vertices> object.
+decomposition and stores the result in an C<isl_vertices> object.
 This information can be queried by either iterating over all
 the vertices or iterating over all the chambers or cells
 and then iterating over all vertices that are active on the chamber.
@@ -7595,7 +7777,8 @@ the following.
 
 	int isl_vertices_get_n_vertices(
 		__isl_keep isl_vertices *vertices);
-	void isl_vertices_free(__isl_take isl_vertices *vertices);
+	__isl_null isl_vertices *isl_vertices_free(
+		__isl_take isl_vertices *vertices);
 
 Vertices can be inspected and destroyed using the following functions.
 
@@ -7664,7 +7847,7 @@ A filter node does not impose any ordering, but rather intersects
 the set of domain elements that the current subtree refers to
 with a given union set.  The subtree of the filter node only
 refers to domain elements in the intersection.
-A filter node is typically only used a child of a sequence or
+A filter node is typically only used as a child of a sequence or
 set node.
 
 =item C<isl_schedule_node_leaf>
@@ -8123,7 +8306,8 @@ a band node with an anchored subtree.
 		__isl_take isl_schedule_node *node);
 
 Most nodes in a schedule tree only contain local information.
-In some cases, however, a node may also refer to outer band nodes.
+In some cases, however, a node may also refer to the schedule dimensions
+of its outer band nodes.
 This means that the position of the node within the tree should
 not be changed, or at least that no changes are performed to the
 outer band nodes.  The following function can be used to test
@@ -8601,26 +8785,31 @@ C<isl_schedule_node_to_str> prints the schedule node in block format.
 =head2 Dependence Analysis
 
 C<isl> contains specialized functionality for performing
-array dataflow analysis.  That is, given a I<sink> access relation
-and a collection of possible I<source> access relations,
+array dataflow analysis.  That is, given a I<sink> access relation,
+a collection of possible I<source> accesses and
+a collection of I<kill> accesses,
 C<isl> can compute relations that describe
-for each iteration of the sink access, which iteration
-of which of the source access relations was the last
-to access the same data element before the given iteration
-of the sink access.
+for each iteration of the sink access, which iterations
+of which of the source access relations may have
+accessed the same data element before the given iteration
+of the sink access without any intermediate kill of that data element.
 The resulting dependence relations map source iterations
 to either the corresponding sink iterations or
 pairs of corresponding sink iterations and accessed data elements.
 To compute standard flow dependences, the sink should be
 a read, while the sources should be writes.
-If any of the source accesses are marked as being I<may>
-accesses, then there will be a dependence from the last
-I<must> access B<and> from any I<may> access that follows
-this last I<must> access.
-In particular, if I<all> sources are I<may> accesses,
+If no kills are specified,
 then memory based dependence analysis is performed.
-If, on the other hand, all sources are I<must> accesses,
+If, on the other hand, all sources are also kills,
 then value based dependence analysis is performed.
+If any of the source accesses are marked as being I<must>
+accesses, then they are also treated as kills.
+Furthermore, the specification of must-sources results
+in the computation of must-dependences.
+Only dependences originating in a must access not coscheduled
+with any other access to the same element and without
+any may accesses between the must access and the sink access
+are considered to be must dependences.
 
 =head3 High-level Interface
 
@@ -8646,13 +8835,17 @@ the following functions.
 	isl_union_access_info_from_sink(
 		__isl_take isl_union_map *sink);
 	__isl_give isl_union_access_info *
-	isl_union_access_info_set_must_source(
+	isl_union_access_info_set_kill(
 		__isl_take isl_union_access_info *access,
-		__isl_take isl_union_map *must_source);
+		__isl_take isl_union_map *kill);
 	__isl_give isl_union_access_info *
 	isl_union_access_info_set_may_source(
 		__isl_take isl_union_access_info *access,
 		__isl_take isl_union_map *may_source);
+	__isl_give isl_union_access_info *
+	isl_union_access_info_set_must_source(
+		__isl_take isl_union_access_info *access,
+		__isl_take isl_union_map *must_source);
 	__isl_give isl_union_access_info *
 	isl_union_access_info_set_schedule(
 		__isl_take isl_union_access_info *access,
@@ -8671,7 +8864,9 @@ the following functions.
 The may sources set by C<isl_union_access_info_set_may_source>
 do not need to include the must sources set by
 C<isl_union_access_info_set_must_source> as a subset.
-The user is free not to call one (or both) of these functions,
+The kills set by C<isl_union_access_info_set_kill> may overlap
+with the may-sources and/or must-sources.
+The user is free not to call one (or more) of these functions,
 in which case the corresponding set is kept to its empty default.
 Similarly, the default schedule initialized by
 C<isl_union_access_info_from_sink> is empty.
@@ -8682,6 +8877,14 @@ The domain of the schedule corresponds to the domains of
 the access relations.  In particular, the domains of the access
 relations are effectively intersected with the domain of the schedule
 and only the resulting accesses are considered by the dependence analysis.
+
+An C<isl_union_access_info> object can be read from input
+using the following function.
+
+	#include <isl/flow.h>
+	__isl_give isl_union_access_info *
+	isl_union_access_info_read_from_file(isl_ctx *ctx,
+		FILE *input);
 
 A representation of the information contained in an object
 of type C<isl_union_access_info> can be obtained using
@@ -8696,8 +8899,8 @@ of type C<isl_union_access_info> can be obtained using
 
 C<isl_union_access_info_to_str> prints the information in flow format.
 
-The output of C<isl_union_access_info_compute_flow> can be examined
-and freed using the following functions.
+The output of C<isl_union_access_info_compute_flow> can be examined,
+copied, and freed using the following functions.
 
 	#include <isl/flow.h>
 	__isl_give isl_union_map *isl_union_flow_get_must_dependence(
@@ -8713,6 +8916,8 @@ and freed using the following functions.
 	__isl_give isl_union_map *isl_union_flow_get_must_no_source(
 		__isl_keep isl_union_flow *flow);
 	__isl_give isl_union_map *isl_union_flow_get_may_no_source(
+		__isl_keep isl_union_flow *flow);
+	__isl_give isl_union_flow *isl_union_flow_copy(
 		__isl_keep isl_union_flow *flow);
 	__isl_null isl_union_flow *isl_union_flow_free(
 		__isl_take isl_union_flow *flow);
@@ -8790,6 +8995,7 @@ C<sink>, a token C<sink_user> used to identify the sink
 access to the user, a callback function for specifying the
 relative order of source and sink accesses, and the number
 of source access relations that will be added.
+
 The callback function has type C<int (*)(void *first, void *second)>.
 The function is called with two user supplied tokens identifying
 either a source or the sink and it should return the shared nesting
@@ -8798,7 +9004,12 @@ In particular, let I<n> be the number of loops shared by
 the two accesses.  If C<first> precedes C<second> textually,
 then the function should return I<2 * n + 1>; otherwise,
 it should return I<2 * n>.
-The sources can be added to the C<isl_access_info> by performing
+The low-level interface assumes that no sources are coscheduled.
+If the information returned by the callback does not allow
+the relative order to be determined, then one of the sources
+is arbitrarily taken to be executed after the other(s).
+
+The sources can be added to the C<isl_access_info> object by performing
 (at most) C<max_source> calls to C<isl_access_info_add_source>.
 C<must> indicates whether the source is a I<must> access
 or a I<may> access.  Note that a multi-valued access relation
@@ -8809,7 +9020,7 @@ the source access.  The range of the source access relation
 C<source> should have the same dimension as the range
 of the sink access relation.
 The C<isl_access_info_free> function should usually not be
-called explicitly, because it is called implicitly by
+called explicitly, because it is already called implicitly by
 C<isl_access_info_compute_flow>.
 
 The result of the dependence analysis is collected in an
@@ -9049,6 +9260,8 @@ using the following functions.
 	__isl_give isl_union_set *
 	isl_schedule_constraints_get_domain(
 		__isl_keep isl_schedule_constraints *sc);
+	__isl_give isl_set *isl_schedule_constraints_get_context(
+		__isl_keep isl_schedule_constraints *sc);
 	__isl_give isl_union_map *
 	isl_schedule_constraints_get_validity(
 		__isl_keep isl_schedule_constraints *sc);
@@ -9063,6 +9276,28 @@ using the following functions.
 		__isl_keep isl_schedule_constraints *sc);
 	__isl_give isl_union_map *
 	isl_schedule_constraints_get_conditional_validity_condition(
+		__isl_keep isl_schedule_constraints *sc);
+
+An C<isl_schedule_constraints> object can be read from input
+using the following functions.
+
+	#include <isl/schedule.h>
+	__isl_give isl_schedule_constraints *
+	isl_schedule_constraints_read_from_str(isl_ctx *ctx,
+		const char *str);
+	__isl_give isl_schedule_constraints *
+	isl_schedule_constraints_read_from_file(isl_ctx *ctx,
+		FILE *input);
+
+The contents of an C<isl_schedule_constraints> object can be printed
+using the following functions.
+
+	#include <isl/schedule.h>
+	__isl_give isl_printer *
+	isl_printer_print_schedule_constraints(
+		__isl_take isl_printer *p,
+		__isl_keep isl_schedule_constraints *sc);
+	__isl_give char *isl_schedule_constraints_to_str(
 		__isl_keep isl_schedule_constraints *sc);
 
 The following function computes a schedule directly from
@@ -9121,6 +9356,10 @@ L</"Schedule Trees">.
 	isl_stat isl_options_set_schedule_algorithm(
 		isl_ctx *ctx, int val);
 	int isl_options_get_schedule_algorithm(
+		isl_ctx *ctx);
+	isl_stat isl_options_set_schedule_carry_self_first(
+		isl_ctx *ctx, int val);
+	int isl_options_get_schedule_carry_self_first(
 		isl_ctx *ctx);
 	isl_stat isl_options_set_schedule_separate_components(
 		isl_ctx *ctx, int val);
@@ -9201,9 +9440,9 @@ and C<ISL_SCHEDULE_ALGORITHM_FEAUTRIER>.
 
 If this option is set, then we try to construct schedules in which the
 constant term is split off from the linear part if the linear parts of
-the scheduling rows for all nodes in the graphs have a common non-trivial
+the scheduling rows for all nodes in the graph have a common non-trivial
 divisor.
-The constant term is then placed in a separate band and the linear
+The constant term is then dropped and the linear
 part is reduced.
 This option is only effective when the Feautrier style scheduler is
 being used, either as the main scheduler or as a fallback for the
@@ -9218,6 +9457,12 @@ bounds on the schedule coefficients based on the sizes of the instance sets.
 For the Feautrier style scheduler, this option detects potentially
 coalescing schedules and then tries to adjust the schedule to avoid
 the coalescing.
+
+=item * schedule_carry_self_first
+
+If this option is set, then the Feautrier style scheduler
+(when used as a fallback for the Pluto-like scheduler) will
+first try to only carry self-dependences.
 
 =item * schedule_separate_components
 
@@ -9714,6 +9959,16 @@ Basic printing can be performed using the following functions.
 		__isl_keep isl_ast_node *node);
 	__isl_give char *isl_ast_expr_to_str(
 		__isl_keep isl_ast_expr *expr);
+	__isl_give char *isl_ast_node_to_str(
+		__isl_keep isl_ast_node *node);
+	__isl_give char *isl_ast_expr_to_C_str(
+		__isl_keep isl_ast_expr *expr);
+	__isl_give char *isl_ast_node_to_C_str(
+		__isl_keep isl_ast_node *node);
+
+The functions C<isl_ast_expr_to_C_str> and
+C<isl_ast_node_to_C_str> are convenience functions
+that return a string representation of the input in C format.
 
 More advanced printing can be performed using the following functions.
 
@@ -10080,7 +10335,8 @@ This option may also be set directly using
 C<isl_schedule_node_band_member_set_isolate_ast_loop_type>.
 The atomic/separate/unroll choice for the remaining part is determined
 by the regular C<atomic>, C<separate> or C<unroll> option.
-The use of the C<isolate> option causes any tree containing the node
+Since the C<isolate> option references outer schedule dimensions,
+its use in a band node causes any tree containing the node
 to be considered anchored.
 
 As an example, consider the isolation of full tiles from partial tiles
@@ -10541,7 +10797,8 @@ C<isl_ast_build_get_schedule> having any particular value.
 Although C<isl> is mainly meant to be used as a library,
 it also contains some basic applications that use some
 of the functionality of C<isl>.
-The input may be specified in either the L<isl format>
+For applications that take one or more polytopes or polyhedra
+as input, this input may be specified in either the L<isl format>
 or the L<PolyLib format>.
 
 =head2 C<isl_polyhedron_sample>
@@ -10576,9 +10833,22 @@ is given, then the constant should appear in the last column.
 Given a polytope, C<isl_polytope_scan> prints
 all integer points in the polytope.
 
+=head2 C<isl_flow>
+
+Given an C<isl_union_access_info> object as input,
+C<isl_flow> prints out the corresponding dependences,
+as computed by C<isl_union_access_info_compute_flow>.
+
 =head2 C<isl_codegen>
 
-Given a schedule, a context set and an options relation,
+Given either a schedule tree or a sequence consisting of
+a schedule map, a context set and an options relation,
 C<isl_codegen> prints out an AST that scans the domain elements
 of the schedule in the order of their image(s) taking into account
 the constraints in the context set.
+
+=head2 C<isl_schedule>
+
+Given an C<isl_schedule_constraints> object as input,
+C<isl_schedule> prints out a schedule that satisfies the given
+constraints.
