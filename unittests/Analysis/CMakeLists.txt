@@ -21,6 +21,7 @@ add_llvm_unittest(AnalysisTests
   MemorySSA.cpp
   OrderedBasicBlockTest.cpp
   ProfileSummaryInfoTest.cpp
+  PolyhedralValueInfoTest.cpp
   ScalarEvolutionTest.cpp
   SparsePropagation.cpp
   TargetLibraryInfoTest.cpp

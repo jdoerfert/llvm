@@ -301,6 +301,7 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
         unsigned Dim = It.second.first - 1;
         DEBUG(dbgs() << "Dim: " << Dim << "\nInst: " << *It.first << "\n");
         auto &DimInfo = Dimensions[Dim];
+        errs() << *It.second.second << "\n";
         //assert(DimInfo.first == nullptr && DimInfo.second == nullptr);
         //DimInfo.first = It.first;
         //DimInfo.second = It.second.second;
@@ -311,6 +312,8 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
 
       DEBUG(dbgs() << "#DimPWAs: " << DimPWAs.size() << "\n");
       int LastDim = Dimensions.size();
+      //errs() << PWA << "\n";
+      //errs() << "LD: " << LastDim << "\n";
       assert(!DimPWAs[LastDim]);
       DimPWAs[LastDim] = PWA;
 
@@ -329,11 +332,16 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
           PVAff Coeff = LastPWA.getParameterCoeff(PId);
           DEBUG(dbgs() << "Coeff " << Coeff << "\n");
           assert(!Coeff || Coeff.isConstant());
-          if (!Coeff)
+          if (!Coeff || Coeff.isEqual(PVAff(Coeff, 0)))
             continue;
 
           PVAff &DimPWA = DimPWAs[LastDim - Dim - 1];
-          assert(!DimPWA);
+          //if (DimPWA && DimPWA.isConstant()) {
+            //errs() << "DPWA: " << DimPWA << "\n";
+            //errs() << "NPWA: " << It.second->getPWA() << "\n";
+            //continue;
+          //}
+          assert(!DimPWA || DimPWA.isEqual(It.second->getPWA()));
 
           DEBUG(dbgs() << "Rem: " << It.second->getPWA() << "\n";);
           DimPWA = It.second->getPWA();
