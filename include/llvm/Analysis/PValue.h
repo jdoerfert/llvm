@@ -53,7 +53,7 @@ class PVBase {
   virtual isl_space *getSpace() const = 0;
 
 public:
-  virtual ~PVBase() = 0;
+  virtual ~PVBase() {};
   virtual std::string str() const;
 
   virtual bool isComplex() const { return false; }
