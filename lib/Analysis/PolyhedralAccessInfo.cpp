@@ -544,7 +544,7 @@ const PACC *PolyhedralAccessInfo::getAsAccess(Instruction &Inst, Value &Pointer,
   const PEXP *PointerPE = PI.getPEXP(&Pointer, Scope);
 
   SmallVector<Value *, 4> Parameters;
-  PI.getParameters(PointerPE, Parameters);
+  PI.getParameters(PointerPE, Parameters, false);
 
   Value *PtrVal = nullptr;
   for (Value *Parameter : Parameters) {

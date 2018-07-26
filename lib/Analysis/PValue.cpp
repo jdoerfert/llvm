@@ -24,8 +24,8 @@
 
 using namespace llvm;
 
-static int DOMAIN_N_BASIC_SEK_TRESHOLD = 8;
-static int PWA_N_PIECE_TRESHOLD = 4;
+static int DOMAIN_N_BASIC_SEK_TRESHOLD = 10;
+static int PWA_N_PIECE_TRESHOLD = 8;
 
 
 static void replace(std::string &str, const std::string &find,

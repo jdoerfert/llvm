@@ -242,6 +242,7 @@ bool PolyhedralExpressionBuilder::getEdgeCondition(PVSet &EdgeCondition,
 
   auto *TermPE = getTerminatorPEXP(PredBB);
   if (!TermPE || PI.isNonAffine(TermPE)) {
+    DEBUG(dbgs() << "Terminator of " << PredBB.getName() << " is non-affine ["<<TermPE<<"]!\n");
     return false;
   }
 
@@ -421,8 +422,13 @@ PEXP *PolyhedralExpressionBuilder::getDomain(BasicBlock &BB) {
     for (auto *SuccBB : successors(ExitingBB))
       if (!L->contains(SuccBB)) {
         PVSet DomainOnEdge;
-        if (!getDomainOnEdge(DomainOnEdge, *ExitingBBDomainPE, *SuccBB) ||
-            DomainOnEdge.isComplex()) {
+        if (!getDomainOnEdge(DomainOnEdge, *ExitingBBDomainPE, *SuccBB)) {
+          DEBUG(dbgs() << "coud not build domain on edge from " << SuccBB->getName() << "\n");
+          ForgetDomainsInLoop(*L);
+          return PE->invalidate();
+        }
+        if (DomainOnEdge.isComplex()) {
+          DEBUG(dbgs() << "Domain on edge from " << SuccBB->getName() << " too complex!\n");
           ForgetDomainsInLoop(*L);
           return PE->invalidate();
         }
@@ -481,8 +487,10 @@ bool PolyhedralExpressionBuilder::getDomainOnEdge(PVSet &DomainOnEdge,
   auto &PredBB = *cast<BasicBlock>(PredDomPE.getValue());
 
   PVSet EdgeCondition;
-  if (!getEdgeCondition(EdgeCondition, PredBB, BB))
+  if (!getEdgeCondition(EdgeCondition, PredBB, BB)) {
+    DEBUG(dbgs() << "invalid edge condition " << PredBB.getName() << " -> " << BB.getName() << "\n");
     return false;
+  }
 
   PVSet PredDomain = PredDomPE.getDomain();
   DEBUG(dbgs() << "Pred: " << PredBB.getName() << "\nBB: " << BB.getName()
@@ -552,8 +560,10 @@ PEXP *PolyhedralExpressionBuilder::visit(Value &V) {
 
   assert(PE && PE->isInitialized());
 
-  if (PE->getPWA().isComplex())
+  if (PE->getPWA().isComplex()) {
+    DEBUG(dbgs() << "Invalidate complex PE: " << PE << "\n");
     PE->invalidate();
+  }
 
   if (PI.isAffine(PE))
     NUM_EXPRESSIONS++;
@@ -777,7 +787,7 @@ PEXP *PolyhedralExpressionBuilder::visitICmpInst(ICmpInst &I) {
   combine(PE, LPE);
   combine(PE, RPE);
   PE->Kind = PEXP::EK_INTEGER;
-  DEBUG(dbgs() << PE << "\n");
+  DEBUG(dbgs()<< "ICMPPE: " << PE << "\n");
   return PE;
 }
 
@@ -800,6 +810,10 @@ PolyhedralExpressionBuilder::visitGetElementPtrInst(GetElementPtrInst &I) {
   auto *PE = getOrCreatePEXP(I);
   *PE = *PtrPE;
   if (!adjustDomainDimensions(PE->PWA, PtrPE, PE, true))
+    return visitParameter(I);
+  if (!adjustDomainDimensions(PE->InvalidDomain, PtrPE, PE, true))
+    return visitParameter(I);
+  if (!adjustDomainDimensions(PE->KnownDomain, PtrPE, PE, true))
     return visitParameter(I);
 
   auto *Ty = I.getPointerOperandType();
@@ -1034,6 +1048,9 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
   if (!IsLoopHeader)
     return visitConditionalPHINode(I);
 
+  if (Scope == L)
+    return visitParameter(I);
+
   unsigned NumLatches = L->getNumBackEdges();
   if (NumLatches > 1) {
     DEBUG(dbgs() << "TODO revisit multiple latch loops!\n");
@@ -1218,6 +1235,8 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
   PE->PWA.dropParameter(Id);
   setScope(OldScope);
 
+  DEBUG(dbgs() << "Pre Init Ops: " << PE->PWA << "\n");
+
   for (unsigned u = 0, e = I.getNumIncomingValues(); u != e; u++) {
     auto *OpBB = I.getIncomingBlock(u);
     if (L->contains(OpBB))
@@ -1230,6 +1249,7 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
     }
 
     PVAff OpAff = OpPE->getPWA();
+    DEBUG(dbgs() << "Init Op: " << OpAff << "\n");
     assert(e > NumLatches);
     if (e - NumLatches > 1 || OtherPHIs) {
       PEXP *OpBBDomPE = getDomain(*OpBB);
@@ -1240,7 +1260,7 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
         return visitParameter(I);
       }
 
-      EdgeDom.fixInputDim(LoopDim - 1, 0);
+      //EdgeDom.fixInputDim(LoopDim - 1, 0);
       OpAff.intersectDomain(EdgeDom);
     }
 
@@ -1248,6 +1268,8 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
     PE->PWA.union_add(OpAff);
     combine(PE, OpPE);
   }
+
+  DEBUG(dbgs() << "Init Ops: " << PE->PWA << "\n");
 
   if (NegationSet) {
     DEBUG(dbgs() << "Negate back value for negation set: " << NegationSet

@@ -277,6 +277,7 @@ public:
   ///               even if they do not vary for one iteration of the @p Scope.
   bool isVaryingInScope(Instruction &I, const Region &RegionScope, bool Strict,
                         bool NoAlias = false) const;
+
   /// Return true if @p I is (potentialy) varying in @p Scope.
   ///
   /// @param I      The instruction to be checked.

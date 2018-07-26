@@ -43,9 +43,9 @@ template <typename PVType> struct PVLess {
 };
 
 class PVBase {
+  friend class PVCtx;
   friend class PVAff;
   friend class PVMap;
-  friend class PVCtx;
   friend class PVSet;
   friend class PVId;
 
