@@ -133,11 +133,11 @@ void PEXP::addInvalidDomain(const PVSet &ID) {
                << "\n");
   InvalidDomain.unify(ID);
   if (InvalidDomain.isUniverse()) {
-    DEBUG(errs() << " => invalid domain is the universe domain. Invalidate!\n");
+    DEBUG(dbgs() << " => invalid domain is the universe domain. Invalidate!\n");
     invalidate();
   }
   if (InvalidDomain.isComplex()) {
-    DEBUG(errs() << " => invalid domain is too complex. Invalidate!\n");
+    DEBUG(dbgs() << " => invalid domain is too complex. Invalidate!\n");
     invalidate();
   }
 
@@ -156,7 +156,7 @@ void PEXP::addKnownDomain(const PVSet &KD) {
                << "\n");
   KnownDomain.intersect(KD);
   if (KnownDomain.isComplex()) {
-    DEBUG(errs() << " => known domain is too complex. Drop it!\n");
+    DEBUG(dbgs() << " => known domain is too complex. Drop it!\n");
     KnownDomain = PVSet::universe(KnownDomain);
   }
   PWA.simplify(KnownDomain);
@@ -499,13 +499,13 @@ bool PolyhedralValueInfo::isKnownToHold(Value *LHS, Value *RHS,
 
 void PolyhedralValueInfo::print(raw_ostream &OS) const {
   auto &PVIC = PEBuilder->getPolyhedralValueInfoCache();
-  errs() << "\nDOMAINS:\n";
+  OS << "\nDOMAINS:\n";
   for (auto &It : PVIC.domains()) {
     Loop *L = It.first.second;
     OS << "V: " << It.first.first->getName() << " in "
        << (L ? L->getName() : "<max>") << ":\n\t" << It.second << "\n";
   }
-  errs() << "\nVALUES:\n";
+  OS << "\nVALUES:\n";
   for (auto &It : PVIC) {
     Loop *L = It.first.second;
     OS << "V: " << *It.first.first << " in " << (L ? L->getName() : "<max>")

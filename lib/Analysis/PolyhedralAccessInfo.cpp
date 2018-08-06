@@ -303,7 +303,7 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
         unsigned Dim = It.second.first - 1;
         DEBUG(dbgs() << "Dim: " << Dim << "\nInst: " << *It.first << "\n");
         auto &DimInfo = Dimensions[Dim];
-        errs() << *It.second.second << "\n";
+        DEBUG(dbgs() << *It.second.second << "\n");
         //assert(DimInfo.first == nullptr && DimInfo.second == nullptr);
         //DimInfo.first = It.first;
         //DimInfo.second = It.second.second;
@@ -748,7 +748,7 @@ struct Expr {
   void dump() const { print(dbgs()); }
 
   bool matches(Value *V) {
-    errs() << "Match V: " << *V << "\n";
+    DEBUG(dbgs() << "Match V: " << *V << "\n");
     if (Val && V == Val) {
       assert(Kind == EK_VALUE || Kind == EK_INSTRUCTION || Kind == EK_ARGUMENT);
       PossibleMatches.insert(Val);
@@ -785,7 +785,7 @@ struct Expr {
   }
 
   bool matches(Instruction *I) {
-    errs() << "Match I: " << *I << "\n";
+    DEBUG(dbgs() << "Match I: " << *I << "\n");
     if (Kind == EK_CONSTANT || Kind == EK_ARGUMENT)
       return false;
     if (Val && I == Val) {
@@ -1118,9 +1118,9 @@ bool PolyhedralAccessInfoWrapperPass::runOnFunction(Function &F) {
       getAnalysis<PolyhedralValueInfoWrapperPass>().getPolyhedralValueInfo(),
       getAnalysis<LoopInfoWrapperPass>().getLoopInfo());
 
-  PAI->detectKnownComputations(F);
+  //PAI->detectKnownComputations(F);
 
-  PAI->extractComputations(F);
+  //PAI->extractComputations(F);
 
   return false;
 }

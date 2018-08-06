@@ -154,7 +154,7 @@ PEXP *PolyhedralExpressionBuilder::getBackedgeTakenCount(const Loop &L) {
   BasicBlock *HeaderBB = L.getHeader();
 
   const PEXP *HeaderBBPE = getDomain(*HeaderBB);
-  DEBUG(errs() << "Header domain: " << HeaderBBPE << "\n");
+  DEBUG(dbgs() << "Header domain: " << HeaderBBPE << "\n");
 
   // TODO: Allow (and skip) non-affine latch domains for under-approximations,
   // thus a minimal trip count.
@@ -182,7 +182,7 @@ PEXP *PolyhedralExpressionBuilder::getBackedgeTakenCount(const Loop &L) {
     return PE->invalidate();
   }
 
-  //(errs() << "Header domain: " << HeaderBBPE << "\n");
+  DEBUG(dbgs() << "Header domain: " << HeaderBBPE << "\n");
   combine(PE, HeaderBBPE);
 
   if (HeaderBBDom.isEmpty())
@@ -908,19 +908,19 @@ PEXP *PolyhedralExpressionBuilder::visitCastInst(CastInst &I) {
 
 PEXP *PolyhedralExpressionBuilder::visitSelectInst(SelectInst &I) {
   auto *CondPE = visitOperand(*I.getCondition(), I);
-  DEBUG(errs() << "\nCondPE: " << CondPE << "\n");
+  DEBUG(dbgs() << "\nCondPE: " << CondPE << "\n");
   if (PI.isNonAffine(CondPE))
     return visitParameter(I);
 
   auto *OpTrue = visitOperand(*I.getTrueValue(), I);
   auto CondZero = CondPE->getPWA().zeroSet();
-  DEBUG(errs() << "OpTrue: " << OpTrue << "\n");
-  DEBUG(errs() << "CondZero: " << CondZero << "\n");
+  DEBUG(dbgs() << "OpTrue: " << OpTrue << "\n");
+  DEBUG(dbgs() << "CondZero: " << CondZero << "\n");
 
   auto *OpFalse = visitOperand(*I.getFalseValue(), I);
   auto CondNonZero = CondPE->getPWA().nonZeroSet();
-  DEBUG(errs() << "OpFalse: " << OpFalse << "\n");
-  DEBUG(errs() << "CondNonZero: " << CondNonZero << "\n");
+  DEBUG(dbgs() << "OpFalse: " << OpFalse << "\n");
+  DEBUG(dbgs() << "CondNonZero: " << CondNonZero << "\n");
 
   auto *PE = getOrCreatePEXP(I);
   if (!PI.isNonAffine(OpTrue))
@@ -1075,9 +1075,9 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
   }
 
   if (!PE || PE->isInitialized()) {
-    errs() << "Ooo. " << PE << " : " << I << "\n";
+    DEBUG(dbgs() << "Ooo. " << PE << " : " << I << "\n");
     if (PE)
-      PE->dump();
+      DEBUG(PE->dump());
   }
   assert(PE && !PE->isInitialized());
   PE->PWA = PVAff(Id);
@@ -1153,7 +1153,7 @@ PEXP *PolyhedralExpressionBuilder::visitPHINode(PHINode &I) {
       for (auto &PHIInfo : PHIInfos) {
         if (PHIInfo.second.involvesInput(LoopDim - 1)) {
           DEBUG(
-              errs()
+              dbgs()
               << "PHI is self reccurent but also involves recurrent other PHI: "
               << PHIInfo.first << " => " << PHIInfo.second << "\n");
           setScope(OldScope);
