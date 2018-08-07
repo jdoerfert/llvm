@@ -6,6 +6,7 @@ target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 ;        A[i] = i;
 ;    }
 ;
+; CHECK-LABEL: simple1
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 10 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 9 } [for.body]
@@ -40,6 +41,7 @@ for.end:                                          ; preds = %for.cond
 ;        A[i] = i;
 ;    }
 ;
+; CHECK-LABEL: simple2
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 8 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 7 } [for.body]
@@ -74,8 +76,9 @@ for.end:                                          ; preds = %for.cond
 ;        A[i] = i;
 ;    }
 ;
+; CHECK-LABEL: simple3
 ; CHECK: { [] -> [(1)] } [entry]
-; CHECK: [N] -> { [i0] -> [(1)] : (0 <= i0 <= N) or i0 = 0 } [for.cond]
+; CHECK: [N] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= N) } [for.cond]
 ; CHECK: [N] -> { [i0] -> [(1)] : 0 <= i0 < N } [for.body]
 ; CHECK: [N] -> { [i0] -> [(1)] : 0 <= i0 < N } [for.inc]
 ; CHECK: { [] -> [(1)] } [for.end]
@@ -108,8 +111,9 @@ for.end:                                          ; preds = %for.cond
 ;        A[i] = i;
 ;    }
 ;
+; CHECK-LABEL: simple4
 ; CHECK: { [] -> [(1)] } [entry]
-; CHECK: { [i0] -> [(1)] : (0 < i0 <= -I + E) or i0 = 0 } [for.cond]
+; CHECK: { [i0] -> [(1)] : i0 = 0 or (0 < i0 <= -I + E) } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 < -I + E } [for.body]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 < -I + E } [for.inc]
 ; CHECK: { [] -> [(1)] } [for.end]
@@ -144,6 +148,7 @@ for.end:                                          ; preds = %for.cond
 ;      } while (i++ < 10);
 ;    }
 ;
+; CHECK-LABEL: simple5
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 10 } [do.body]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 10 } [S]
