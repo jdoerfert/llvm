@@ -7,6 +7,7 @@ target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 ;          A[i]++;
 ;    }
 ;
+; CHECK-LABEL: conditional0
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 1000 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 999 } [for.body]
@@ -55,6 +56,7 @@ for.end:                                          ; preds = %for.cond
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional1
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 1000 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 999 } [for.body]
@@ -115,6 +117,7 @@ for.end:                                          ; preds = %for.cond
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional2
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 1000 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 999 } [for.body]
@@ -170,6 +173,7 @@ for.end:                                          ; preds = %for.cond
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional3
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 1000 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 999 } [for.body]
@@ -229,6 +233,7 @@ for.end:                                          ; preds = %for.cond
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional4
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 1000 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 999 } [for.body]
@@ -284,6 +289,7 @@ for.end:                                          ; preds = %for.cond
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional5
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 1000 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 999 } [for.body]
@@ -336,6 +342,7 @@ for.end:                                          ; preds = %for.cond
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional6
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 1000 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 999 } [for.body]
@@ -400,6 +407,7 @@ for.end:                                          ; preds = %for.cond
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional7
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 1000 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 999 } [for.body]
@@ -470,6 +478,7 @@ for.end:                                          ; preds = %for.cond
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional8
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 1000 } [for.cond]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 999 } [for.body]
@@ -524,6 +533,7 @@ for.end:                                          ; preds = %for.cond
 ;        }
 ;    }
 ;
+; CHECK-LABEL: conditional9
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: [P] -> { [] -> [(1)] : P < 0 or P > 0 } [if.then]
 ; CHECK: [P] -> { [i0] -> [(1)] : 0 <= i0 <= 1000 and (P < 0 or P > 0) } [for.cond]
@@ -568,6 +578,7 @@ if.end:                                           ; preds = %entry, %for.end
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional10
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: [P] -> { [i0] -> [(1)] : (P < 0 and 0 <= i0 <= 1000) or (P > 0 and 0 <= i0 <= 1000) or i0 = 0 } [for.cond]
 ; CHECK: [P] -> { [i0] -> [(1)] : 0 <= i0 <= 1000 and (P < 0 or P > 0) } [land.rhs]
@@ -612,6 +623,7 @@ for.end:                                          ; preds = %land.end
 ;      }
 ;    }
 ;
+; CHECK-LABEL: conditional11
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : i0 = 0 } [for.cond] 
 ; CHECK-SAME: [ID: [and] -> { [i0] : i0 > 0 and (and < 0 or and > 0) }]
@@ -653,6 +665,7 @@ for.end:                                          ; preds = %for.cond
 ;      } while (i++ < 10);
 ;    }
 ;
+; CHECK-LABEL: conditional12
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : 0 <= i0 <= 10 } [do.body]
 ; CHECK: { [i0] -> [(1)] : 5 <= i0 <= 10 } [if.then]
@@ -698,6 +711,7 @@ do.end:                                           ; preds = %do.cond
 ;      } while (i++ < N);
 ;    }
 ;
+; CHECK-LABEL: conditional13
 ; CHECK: { [] -> [(1)] } [entry]
 ; CHECK: { [i0] -> [(1)] : (0 <= i0 <= N) or i0 = 0 } [do.body]
 ; CHECK: { [i0] -> [(1)] : (i0 > P and 0 <= i0 <= N) or (i0 = 0 and P < 0) } [if.then]
