@@ -10,9 +10,10 @@ target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 ;      }
 ;    }
 ;
+; CHECK-LABEL: lwe0
 ; CHECK:  { [] -> [(1)] } [entry]
-; CHECK:  [P] -> { [i0] -> [(1)] : (0 <= i0 <= 100 and i0 <= 1 + P) or i0 = 0 } [for.cond]
-; CHECK:  [P] -> { [i0] -> [(1)] : (0 <= i0 <= 99 and i0 <= 1 + P) or i0 = 0 } [for.body]
+; CHECK:  [P] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= 100 and i0 <= 1 + P) } [for.cond]
+; CHECK:  [P] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= 99 and i0 <= 1 + P) } [for.body]
 ; CHECK:  [P] -> { [] -> [(1)] : P <= 98 } [if.then]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 99 and i0 <= P } [if.end]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 99 and i0 <= P } [for.inc]
@@ -67,8 +68,9 @@ for.end:                                          ; preds = %for.end.loopexit, %
 ;      } while (i++ < 100);
 ;    }
 ;
+; CHECK-LABEL: lwe1
 ; CHECK:  { [] -> [(1)] } [entry]
-; CHECK:  [P] -> { [i0] -> [(1)] : (0 <= i0 <= 100 and i0 <= 1 + P) or i0 = 0 } [do.body]
+; CHECK:  [P] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= 100 and i0 <= 1 + P) } [do.body]
 ; CHECK:  [P] -> { [] -> [(1)] : P <= 99 } [if.then]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 100 and i0 <= P } [if.end]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 100 and i0 <= P } [do.cond]
@@ -119,9 +121,10 @@ do.end:                                           ; preds = %do.end.loopexit, %i
 ;      }
 ;    }
 ;
+; CHECK-LABEL: lwe2
 ; CHECK:  { [] -> [(1)] } [entry]
-; CHECK:  [P] -> { [i0] -> [(1)] : (0 <= i0 <= 100 and i0 <= 1 + P) or i0 = 0 } [for.cond]
-; CHECK:  [P] -> { [i0] -> [(1)] : (0 <= i0 <= 99 and i0 <= 1 + P) or i0 = 0 } [for.body]
+; CHECK:  [P] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= 100 and i0 <= 1 + P) } [for.cond]
+; CHECK:  [P] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= 99 and i0 <= 1 + P) } [for.body]
 ; CHECK:  [P] -> { [] -> [(1)] : P <= 98 } [if.then]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 99 and i0 <= P } [if.end]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 99 and i0 <= P } [for.inc]
@@ -176,8 +179,9 @@ for.end:                                          ; preds = %for.end.loopexit, %
 ;      } while (i++ < 100);
 ;    }
 ;
+; CHECK-LABEL: lwe3
 ; CHECK:  { [] -> [(1)] } [entry]
-; CHECK:  [P] -> { [i0] -> [(1)] : (0 <= i0 <= 100 and i0 <= 1 + P) or i0 = 0 } [do.body]
+; CHECK:  [P] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= 100 and i0 <= 1 + P) } [do.body]
 ; CHECK:  [P] -> { [] -> [(1)] : P <= 99 } [if.then]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 100 and i0 <= P } [if.end]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 100 and i0 <= P } [do.cond]
@@ -228,9 +232,10 @@ do.end:                                           ; preds = %do.end.loopexit, %i
 ;      }
 ;    }
 ;
+; CHECK-LABEL: lwe4
 ; CHECK:  { [] -> [(1)] } [entry]
-; CHECK:  [P] -> { [i0] -> [(1)] : (0 <= i0 <= 100 and i0 <= 1 + P) or i0 = 0 } [for.cond]
-; CHECK:  [P] -> { [i0] -> [(1)] : (0 <= i0 <= 99 and i0 <= 1 + P) or i0 = 0 } [for.body]
+; CHECK:  [P] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= 100 and i0 <= 1 + P) } [for.cond]
+; CHECK:  [P] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= 99 and i0 <= 1 + P) } [for.body]
 ; CHECK:  [P] -> { [] -> [(1)] : P <= 98 } [if.then]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 99 and i0 <= P } [if.end]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 99 and i0 <= P } [for.inc]
@@ -284,8 +289,9 @@ declare void @abort()
 ;      } while (i++ < 100);
 ;    }
 ;
+; CHECK-LABEL: lwe5
 ; CHECK:  { [] -> [(1)] } [entry]
-; CHECK:  [P] -> { [i0] -> [(1)] : (0 <= i0 <= 100 and i0 <= 1 + P) or i0 = 0 } [do.body]
+; CHECK:  [P] -> { [i0] -> [(1)] : i0 = 0 or (0 <= i0 <= 100 and i0 <= 1 + P) } [do.body]
 ; CHECK:  [P] -> { [] -> [(1)] : P <= 99 } [if.then]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 100 and i0 <= P } [if.end]
 ; CHECK:  [P] -> { [i0] -> [(1)] : 0 <= i0 <= 100 and i0 <= P } [do.cond]
@@ -333,6 +339,7 @@ do.end:                                           ; preds = %do.cond
 ;      }
 ;    }
 ;
+; CHECK-LABEL: lwe6
 ; CHECK:  { [] -> [(1)] } [entry]
 ; CHECK:  [call] -> { [i0] -> [(1)] : i0 = 0 or (call = 0 and 0 <= i0 <= 100) } [for.cond]
 ; CHECK:  [call] -> { [i0] -> [(1)] : i0 = 0 or (call = 0 and 0 <= i0 <= 99) } [for.body]
@@ -392,6 +399,7 @@ declare i32 @f(...)
 ;      } while (i++ < 100);
 ;    }
 ;
+; CHECK-LABEL: lwe7
 ; CHECK:  { [] -> [(1)] } [entry]
 ; CHECK:  [call] -> { [i0] -> [(1)] : i0 = 0 or (call = 0 and 0 <= i0 <= 100) } [do.body]
 ; CHECK:  [call] -> { [] -> [(1)] : call < 0 or call > 0 } [if.then]
@@ -444,6 +452,7 @@ do.end:                                           ; preds = %do.end.loopexit, %i
 ;      }
 ;    }
 ;
+; CHECK-LABEL: lwe8
 ; CHECK:  { [] -> [(1)] } [entry]
 ; CHECK:  [call] -> { [i0] -> [(1)] : i0 = 0 or (call = 0 and 0 <= i0 <= 100) } [for.cond]
 ; CHECK:  [call] -> { [i0] -> [(1)] : i0 = 0 or (call = 0 and 0 <= i0 <= 99) } [for.body]
@@ -501,6 +510,7 @@ for.end:                                          ; preds = %for.end.loopexit, %
 ;      } while (i++ < 100);
 ;    }
 ;
+; CHECK-LABEL: lwe9
 ; CHECK:  { [] -> [(1)] } [entry]
 ; CHECK:  [call] -> { [i0] -> [(1)] : i0 = 0 or (call = 0 and 0 <= i0 <= 100) } [do.body]
 ; CHECK:  [call] -> { [] -> [(1)] : call < 0 or call > 0 } [if.then]
@@ -553,6 +563,7 @@ do.end:                                           ; preds = %do.end.loopexit, %i
 ;      }
 ;    }
 ;
+; CHECK-LABEL: lwe10
 ; CHECK:  { [] -> [(1)] } [entry]
 ; CHECK:  [call] -> { [i0] -> [(1)] : i0 = 0 or (call = 0 and 0 <= i0 <= 100) } [for.cond]
 ; CHECK:  [call] -> { [i0] -> [(1)] : i0 = 0 or (call = 0 and 0 <= i0 <= 99) } [for.body]
@@ -607,6 +618,7 @@ for.end:                                          ; preds = %for.cond
 ;      } while (i++ < 100);
 ;    }
 ;
+; CHECK-LABEL: lwe11
 ; CHECK:  { [] -> [(1)] } [entry]
 ; CHECK:  [call] -> { [i0] -> [(1)] : i0 = 0 or (call = 0 and 0 <= i0 <= 100) } [do.body]
 ; CHECK:  [call] -> { [] -> [(1)] : call < 0 or call > 0 } [if.then]
