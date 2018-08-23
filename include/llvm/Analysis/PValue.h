@@ -34,6 +34,7 @@ struct isl_set;
 struct isl_map;
 struct isl_space;
 struct isl_pw_aff;
+struct isl_val;
 
 namespace llvm {
 class PVAff;
@@ -300,6 +301,12 @@ public:
   void getParameters(SmallVectorImpl<PVId> &Parameters) const;
   void getParameters(SmallVectorImpl<llvm::Value *> &Parameters) const;
 
+  /// Fan out offset-based map in last dimension to contain bytes accessed
+  /// instead of offset
+  PVMap smudgeBytes(int bytesize) const;
+  PVMap divideRangeDims(int64_t d, int first, int n) const;
+
+  PVMap coalesce();
   void simplify(const PVAff &Aff);
 
   using IslCombinatorFn = std::function<isl_map *(isl_map *, isl_map *)>;
@@ -348,6 +355,14 @@ public:
   PVAff(const PVAff &Coeff, const PVId &Id, const PVBase &Base);
   ///}
 
+  // Named Constructors
+  static PVAff fromIsl(isl_pw_aff *obj); // takes ownership of obj
+  static PVAff copy(const PVAff &other);
+  static PVAff empty(const PVBase &Base);
+  static PVAff constantOnDomain(const PVSet &Domain, int64_t ConstVal);
+  static PVAff constantOnDomain(const PVSet &Domain, isl_val *ConstVal);
+  static PVAff constant(const PVBase &Base, int64_t ConstVal);
+
   ~PVAff();
 
   bool operator==(const PVAff &Other);
@@ -369,9 +384,13 @@ public:
   /// Return the number of pieces
   size_t getNumPieces() const;
 
+  /// return integer value
+  int64_t getIntegerVal() const;
+
   bool isComplex() const;
   bool isInteger() const;
   bool isConstant() const;
+  bool isEmpty() const;
   bool isEqual(const PVAff &Aff) const;
 
   int getParameterPosition(const PVId &Id) const;
@@ -399,6 +418,7 @@ public:
 
   PVAff extractFactor(const PVAff &Aff) const;
   int getFactor(const PVAff &Aff) const;
+  PVAff findCoeffGCD() const;
 
   PVAff &add(const PVAff &PV);
   PVAff &sub(const PVAff &PV);
@@ -418,6 +438,7 @@ public:
   PVAff &setOutputId(const PVId &Id);
 
   PVAff &floordiv(int64_t V);
+  PVAff &mul(int64_t V);
 
   PVAff &maxInLastInputDims(unsigned Dims);
 

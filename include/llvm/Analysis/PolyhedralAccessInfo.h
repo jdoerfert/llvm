@@ -89,6 +89,14 @@ public:
     SSK_COMPLETE  ///< Accesses accessible outside and inside the code region.
   };
 
+  enum AccessMapKind {
+    AMK_MAYREAD,
+    AMK_MUSTREAD,
+    AMK_MAYWRITE,
+    AMK_MUSTWRITE,
+    AMK_MAX,
+  };
+
   struct ArrayInfo {
     /// The unit in which accesses to this pointer are measured (in bytes).
     ///
@@ -114,6 +122,10 @@ public:
 
     void collectParameters(std::set<PVId> &ParameterSet) const;
     void print(raw_ostream &OS) const;
+
+    // byte based interface
+    SmallVector<PVAff, 4> DimSizesBytes;
+    PVMap AccessMapsBytes[4]; // accessed using AccessMapKind
   };
 
   const ArrayInfo *getArrayInfoForPointer(const Value *Pointer) const {

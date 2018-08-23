@@ -325,6 +325,7 @@ PVSet &PVSet::subtract(const PVSet &S) {
     Obj = isl_set_subtract(Obj, SObj);
     Obj = isl_set_coalesce(Obj);
   }
+
   return *this;
 }
 
@@ -747,6 +748,90 @@ void PVMap::getParameters(SmallVectorImpl<llvm::Value *> &Parameters) const {
       Parameters.push_back(getParameter(i).getPayloadAs<Value *>());
 }
 
+/* smudgeBytes(M, s) -> M({ [..., i_n] -> [..., o_n] : i_n <= o_n < i_n+s and i_k = o_k for k < n })
+ *
+ * e.g. smudgeBytes({ [i0] -> [o0 = 8i0]}, 4)
+ *        -> { [i0] -> [o0] : 8i0 <= o0 < 8i0+4 }
+ */
+PVMap PVMap::smudgeBytes(int bytesize) const {
+  isl_map *orig = Obj; // 
+  isl_ctx *ctx = isl_map_get_ctx(orig);
+
+  int outDims = isl_map_dim(orig, isl_dim_out);
+
+  isl_space *space = isl_space_alloc(ctx, 0, outDims, outDims);
+
+  isl_map *smudged = isl_map_universe(isl_space_copy(space));
+  for (int dim = 0; dim < outDims-1; ++dim) {
+    smudged = isl_map_equate(smudged, isl_dim_in, dim, isl_dim_out, dim);
+  }
+
+  isl_local_space *local = isl_local_space_from_space(space);
+
+  isl_constraint *lower = isl_constraint_alloc_inequality(isl_local_space_copy(local));
+  lower = isl_constraint_set_coefficient_si(lower, isl_dim_out, outDims-1, 1);
+  lower = isl_constraint_set_coefficient_si(lower, isl_dim_in, outDims-1, -1);
+
+  isl_constraint *upper = isl_constraint_alloc_inequality(local);
+  upper = isl_constraint_set_constant_si(upper, bytesize-1);
+  upper = isl_constraint_set_coefficient_si(upper, isl_dim_out, outDims-1, -1);
+  upper = isl_constraint_set_coefficient_si(upper, isl_dim_in, outDims-1, 1);
+
+  smudged = isl_map_add_constraint(smudged, lower);
+  smudged = isl_map_add_constraint(smudged, upper);
+
+  if (isl_map_has_tuple_id(orig, isl_dim_out)) {
+    isl_id *tupleId = isl_map_get_tuple_id(orig, isl_dim_out);
+    orig = isl_map_reset_tuple_id(orig, isl_dim_out);
+    smudged = isl_map_set_tuple_id(smudged, isl_dim_out, tupleId);
+  }
+
+  return PVMap(isl_map_apply_range(isl_map_copy(orig), smudged));
+}
+
+PVMap PVMap::divideRangeDims(int64_t d, int first, int n) const {
+  isl_map *orig = Obj;
+  isl_ctx *ctx = isl_map_get_ctx(orig);
+  int outDims = isl_map_dim(orig, isl_dim_out);
+
+  // create identity map with n in/out dimensions, then divide by denominator
+  isl_space *space = isl_space_alloc(ctx, 0, n, n);
+  isl_map *divided = isl_map_identity(space);
+  isl_val *denVal = isl_val_int_from_si(ctx, d);
+  divided = isl_map_floordiv_val(divided, denVal);
+
+  // fill in and equate missing dimensions before
+  int dimsBefore = first;
+  divided = isl_map_insert_dims(divided, isl_dim_in, 0, dimsBefore);
+  divided = isl_map_insert_dims(divided, isl_dim_out, 0, dimsBefore);
+  for (int i = 0; i < dimsBefore; ++i) {
+    int dim = i;
+    divided = isl_map_equate(divided, isl_dim_in, dim, isl_dim_out, dim);
+  }
+
+  // ... and after
+  int dimsAfter = outDims - first - n;
+  divided = isl_map_add_dims(divided, isl_dim_in, dimsAfter);
+  divided = isl_map_add_dims(divided, isl_dim_out, dimsAfter);
+  for (int i = 0; i < dimsAfter; ++i) {
+    int dim = i + first + n;
+    divided = isl_map_equate(divided, isl_dim_in, dim, isl_dim_out, dim);
+  }
+
+  // avoid "spaces don't match" by updating tuple ids
+  if (isl_map_has_tuple_id(orig, isl_dim_out)) {
+    isl_id *id = isl_map_get_tuple_id(orig, isl_dim_out);
+    orig = isl_map_reset_tuple_id(orig, isl_dim_out);
+    divided = isl_map_set_tuple_id(divided, isl_dim_out, id);
+  }
+
+  return PVMap(isl_map_apply_range(isl_map_copy(orig), divided));
+}
+
+PVMap PVMap::coalesce() {
+  return PVMap(isl_map_coalesce(isl_map_copy(Obj)));
+}
+
 void PVMap::simplify(const PVAff &Aff) {
 }
 
@@ -857,6 +942,38 @@ PVAff::PVAff(const PVAff &Coeff, const PVId &Id, const PVBase &Base)
   multiply(Coeff);
 }
 
+// Named Constructors
+
+PVAff PVAff::fromIsl(__isl_take isl_pw_aff *Obj) {
+  return PVAff(Obj);
+}
+
+PVAff PVAff::copy(const PVAff &other) {
+  return PVAff::fromIsl(isl_pw_aff_copy(other.Obj));
+}
+
+PVAff PVAff::empty(const PVBase &Base) {
+  isl_space *space = Base.getSpace();
+  return PVAff(isl_pw_aff_empty(space));
+}
+
+PVAff PVAff::constantOnDomain(const PVSet &Domain, int64_t ConstVal) {
+  isl_val *V = isl_val_int_from_si(Domain.getIslCtx(), ConstVal);
+  return PVAff::constantOnDomain(Domain, V);
+}
+
+PVAff PVAff::constantOnDomain(const PVSet &Domain, isl_val *ConstVal) {
+  isl_set *Set = Domain;
+  Set = isl_set_detect_equalities(Set);
+  Set = isl_set_remove_redundancies(Set);
+  Set = isl_set_coalesce(Set);
+  return PVAff(isl_pw_aff_val_on_domain(Set, ConstVal));
+}
+
+PVAff PVAff::constant(const PVBase &Base, int64_t ConstVal) {
+  return PVAff::constantOnDomain(PVSet::universe(Base), ConstVal);
+}
+
 PVAff::~PVAff() { isl_pw_aff_free(Obj); }
 
 PVAff &PVAff::operator=(const PVAff &Other) {
@@ -921,6 +1038,40 @@ int PVAff::getFactor(const PVAff &Aff) const {
   }
   llvm_unreachable("TODO");
   return -1;
+}
+
+struct gcdInfo {
+  isl_val *gcd;
+};
+
+isl_stat islFindCoeffGCD(isl_set *set, isl_aff *aff, void *user) {
+  gcdInfo *info = (gcdInfo*)user;
+  isl_set_free(set);
+
+  int nDim = isl_aff_dim(aff, isl_dim_in);
+
+  for (int dim = 0; dim < nDim; ++dim) {
+    isl_val *val = isl_aff_get_coefficient_val(aff, isl_dim_in, dim);
+    if (info->gcd == nullptr) {
+      info->gcd = val;
+    } else {
+      info->gcd = isl_val_gcd(info->gcd, val);
+    }
+  }
+  isl_aff_free(aff);
+  return isl_stat_ok;
+}
+
+PVAff PVAff::findCoeffGCD() const {
+  gcdInfo info = (gcdInfo){nullptr};
+  isl_pw_aff_foreach_piece(Obj, islFindCoeffGCD, (void*)&info);
+
+  isl_val *gcd = info.gcd;
+  if (gcd == nullptr || isl_val_is_nan(gcd)) {
+    return PVAff::constantOnDomain(this->getDomain(), 1);
+  } else {
+    return PVAff::constantOnDomain(this->getDomain(), gcd);
+  }
 }
 
 PVId PVAff::getParameter(unsigned No) const {
@@ -1054,12 +1205,31 @@ bool PVAff::isComplex() const {
   return Complex;
 }
 
+int64_t PVAff::getIntegerVal() const {
+  // ensures: single piece + constant
+  assert(isInteger() && "Can only get integer value from constant integer PVAffs");
+  struct Info {
+    int64_t integer;
+  } info;
+  auto cb = [](isl_set *domain, isl_aff *aff, void* user) -> isl_stat {
+    isl_val *val = isl_aff_get_constant_val(aff);
+    ((Info*)user)->integer = isl_val_get_num_si(val);
+    return isl_stat_ok;
+  };
+  isl_pw_aff_foreach_piece(Obj, cb, &info);
+  return info.integer;
+}
+
 bool PVAff::isInteger() const {
   return isl_pw_aff_n_piece(Obj) == 1 && isConstant();
 }
 
 bool PVAff::isConstant() const {
   return isl_pw_aff_is_cst(Obj);
+}
+
+bool PVAff::isEmpty() const {
+  return isl_pw_aff_is_empty(Obj);
 }
 
 bool PVAff::isEqual(const PVAff &Aff) const {
@@ -1194,6 +1364,12 @@ PVAff &PVAff::simplify(const PVSet &S) {
 PVAff &PVAff::floordiv(int64_t V) {
   isl_val *Val = isl_val_int_from_si(getIslCtx(), V);
   Obj = isl_pw_aff_div(Obj, isl_pw_aff_val_on_domain(getDomain(), Val));
+  return *this;
+}
+
+PVAff &PVAff::mul(int64_t V) {
+  isl_val *Val = isl_val_int_from_si(getIslCtx(), V);
+  Obj = isl_pw_aff_mul(Obj, isl_pw_aff_val_on_domain(getDomain(), Val));
   return *this;
 }
 

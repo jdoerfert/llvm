@@ -268,6 +268,10 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
     ArrayInfo *&AI = ArrayInfoMap[BasePointer];
     AI = new ArrayInfo();
 
+    // Use for GCD in accesses to determine most likely element size.
+    // GCD (and GreatestCommonDivisor64 impl) has 0 as identity value
+    int64_t ByteGCD = 0;
+
     AI->ElementSize = getElementSize(PACCVector[0]->getPointer(), DL);
     for (const PACC *PA : PACCVector) {
       assert(PA);
@@ -290,7 +294,6 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
 
     for (const PACC *PA : PACCVector) {
       PVAff PWA = PA->getPEXP()->getPWA();
-      PWA.floordiv(AI->ElementSize);
 
       SmallVector<PVAff, 4> DimPWAs;
       DEBUG(dbgs() << "\n\nPWA:" << PWA << "\n");
@@ -385,6 +388,32 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
       }
       DEBUG(dbgs() << "Final MAP: " << Map << "\n");
 
+      // Find the GCD between ALL COEFFICIENTS of ALL ACCESSES to this array
+      auto CoeffGCD = PWA.findCoeffGCD();
+      if (CoeffGCD.isInteger()) {
+        int64_t CoeffGCDi64 = CoeffGCD.getIntegerVal();
+          ByteGCD = GreatestCommonDivisor64(ByteGCD, CoeffGCDi64);
+      }
+
+      // Smudge maps to width of element size of this particular instruction.
+      // This blends accesses of different sizes into a single map without losing
+      // accuracy.
+      int readSize = getElementSize(PA->getPointer(), DL);
+      PVMap smudged = Map.smudgeBytes(readSize);
+      // Add to existing (or empty) accesses
+      if (PA->isWrite() and IsMayAccess)
+        AI->AccessMapsBytes[AMK_MAYWRITE] = AI->AccessMapsBytes[AMK_MAYWRITE].union_add(smudged);
+      if (PA->isWrite() and !IsMayAccess)
+        AI->AccessMapsBytes[AMK_MUSTWRITE] = AI->AccessMapsBytes[AMK_MUSTWRITE].union_add(smudged);
+      if (PA->isRead() and IsMayAccess)
+        AI->AccessMapsBytes[AMK_MAYREAD] = AI->AccessMapsBytes[AMK_MAYREAD].union_add(smudged);
+      if (PA->isRead() and !IsMayAccess)
+        AI->AccessMapsBytes[AMK_MUSTREAD] = AI->AccessMapsBytes[AMK_MUSTREAD].union_add(smudged);
+
+      // apply delayed element-size div
+      // Needs to take place after creating the smudged copy
+      Map = Map.floordiv(AI->ElementSize);
+
       AI->AccessMultiDimMap[PA] = Map;
 
       if (PA->isWrite()) {
@@ -402,7 +431,29 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
 
     DEBUG(dbgs() << "AI Read: " << AI->MustReadMap << "\n";
           dbgs() << "AI Write: " << AI->MustWriteMap << "\n";);
+
+    // finalize byte based access info
+    DEBUG(dbgs() << "Likely element size: " << ByteGCD << "\n");
+
+    for (const PEXP* DimSize : AI->DimensionSizes) {
+      AI->DimSizesBytes.push_back(PVAff::copy(DimSize->getPWA()));
+    }
+    // multiply last dimension size by suspected element size
+    if (!AI->DimSizesBytes.empty()) {
+      AI->DimSizesBytes.back().mul(ByteGCD);
+    }
+
+    // divide all but last dimension by suspected element size
+    for (int i = 0; i < AMK_MAX; ++i) {
+      PVMap &M = AI->AccessMapsBytes[i];
+      if (M) {
+        int numDims = M.getNumOutputDimensions();
+        M = M.divideRangeDims(ByteGCD, 0, numDims-1);
+        M = M.coalesce();
+      }
+    }
   }
+
 }
 
 void PACCSummary::rewrite(PVRewriter<PVMap> &Rewriter) {
@@ -504,6 +555,19 @@ void PACCSummary::ArrayInfo::print(raw_ostream &OS) const {
   if (MustWriteMap)
     OS << "\t\tMustWrite: " << MustWriteMap << "\n";
   OS << "\n";
+  if (!DimSizesBytes.empty()) {
+    OS << "\t\tDimension sizes (Bytes):\n";
+    for (const PVAff &DimSize : DimSizesBytes)
+      OS << "\t\t- " << DimSize.str() << "\n";
+  }
+  if (AccessMapsBytes[AMK_MAYREAD])
+    OS << "\t\tMayRead (Bytes): " << AccessMapsBytes[AMK_MAYREAD] << "\n";
+  if (AccessMapsBytes[AMK_MUSTREAD])
+    OS << "\t\tMustRead (Bytes): " << AccessMapsBytes[AMK_MUSTREAD] << "\n";
+  if (AccessMapsBytes[AMK_MAYREAD])
+    OS << "\t\tMayWrite (Bytes): " << AccessMapsBytes[AMK_MAYWRITE] << "\n";
+  if (AccessMapsBytes[AMK_MAYREAD])
+    OS << "\t\tMustWrite (Bytes): " << AccessMapsBytes[AMK_MUSTWRITE] << "\n";
 }
 
 void PACCSummary::ArrayInfo::collectParameters(std::set<PVId> &ParameterSet) const {
