@@ -413,6 +413,7 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
       // apply delayed element-size div
       // Needs to take place after creating the smudged copy
       Map = Map.floordiv(AI->ElementSize);
+      Map.dropUnusedParameters();
 
       AI->AccessMultiDimMap[PA] = Map;
 
@@ -450,6 +451,7 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
         int numDims = M.getNumOutputDimensions();
         M = M.divideRangeDims(ByteGCD, 0, numDims-1);
         M = M.coalesce();
+        M.dropUnusedParameters();
       }
     }
   }
@@ -564,9 +566,9 @@ void PACCSummary::ArrayInfo::print(raw_ostream &OS) const {
     OS << "\t\tMayRead (Bytes): " << AccessMapsBytes[AMK_MAYREAD] << "\n";
   if (AccessMapsBytes[AMK_MUSTREAD])
     OS << "\t\tMustRead (Bytes): " << AccessMapsBytes[AMK_MUSTREAD] << "\n";
-  if (AccessMapsBytes[AMK_MAYREAD])
+  if (AccessMapsBytes[AMK_MAYWRITE])
     OS << "\t\tMayWrite (Bytes): " << AccessMapsBytes[AMK_MAYWRITE] << "\n";
-  if (AccessMapsBytes[AMK_MAYREAD])
+  if (AccessMapsBytes[AMK_MUSTWRITE])
     OS << "\t\tMustWrite (Bytes): " << AccessMapsBytes[AMK_MUSTWRITE] << "\n";
 }
 
