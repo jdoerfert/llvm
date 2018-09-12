@@ -398,6 +398,7 @@ public:
   void eliminateParameter(const PVId &Id);
 
   bool involvesId(const PVId &Id) const;
+  bool involvesIdInOutput(const PVId &Id) const;
   bool involvesInput(unsigned Dim) const;
 
   void addInputDims(unsigned Dims);

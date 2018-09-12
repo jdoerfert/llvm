@@ -754,7 +754,7 @@ void PVMap::getParameters(SmallVectorImpl<llvm::Value *> &Parameters) const {
  *        -> { [i0] -> [o0] : 8i0 <= o0 < 8i0+4 }
  */
 PVMap PVMap::smudgeBytes(int bytesize) const {
-  isl_map *orig = Obj; // 
+  isl_map *orig = Obj; //
   isl_ctx *ctx = isl_map_get_ctx(orig);
 
   int outDims = isl_map_dim(orig, isl_dim_out);
@@ -1133,6 +1133,24 @@ void PVAff::equateParameters(const PVId &Id0, const PVId &Id1) {
 
 bool PVAff::involvesId(const PVId &Id) const {
   return getParameterPosition(Id) >= 0;
+}
+struct Helper {
+  int Dim;
+  bool InvolvesDim;
+};
+static isl_stat involvesIdInOutputHelper(isl_set *Dom, isl_aff *Aff, void *User) {
+  Helper &H = *static_cast<Helper *>(User);
+  H.InvolvesDim |= isl_aff_involves_dims(Aff, isl_dim_param, H.Dim, 1);
+  isl_set_free(Dom);
+  isl_aff_free(Aff);
+  return isl_stat_ok;
+}
+bool PVAff::involvesIdInOutput(const PVId &Id) const {
+  int Pos = getParameterPosition(Id);
+  assert(Pos >= 0);
+  Helper H = {Pos, false};
+  isl_pw_aff_foreach_piece(Obj, involvesIdInOutputHelper, &H);
+  return H.InvolvesDim;
 }
 
 bool PVAff::involvesInput(unsigned Dim) const {
