@@ -96,6 +96,10 @@ static bool isNVVMIdxCall(PolyhedralValueInfo &PI, const PEXP *PE) {
   if (!II)
     return false;
   switch (II->getIntrinsicID()) {
+    case Intrinsic::nvvm_read_ptx_sreg_tid_x:
+    case Intrinsic::nvvm_read_ptx_sreg_tid_y:
+    case Intrinsic::nvvm_read_ptx_sreg_tid_z:
+    case Intrinsic::nvvm_read_ptx_sreg_tid_w:
     case Intrinsic::nvvm_read_ptx_sreg_ctaid_x:
     case Intrinsic::nvvm_read_ptx_sreg_ctaid_y:
     case Intrinsic::nvvm_read_ptx_sreg_ctaid_z:
@@ -185,7 +189,7 @@ const PEXP *PACCSummary::findMultidimensionalViewSize(
   DEBUG({
     dbgs() << "Found " << PotentialSizes.size() << " potential sizes:\n";
     for (auto &It : PotentialSizes) {
-      dbgs() << "- " << It.first << " : " << It.second.size() << "\n";
+      dbgs() << "- " << It.first << " : " << *It.second.front().first << "\n";
     }
   });
 
@@ -526,7 +530,7 @@ void PACCSummary::print(raw_ostream &OS, PolyhedralValueInfo *PVI) const {
   OS << "Array infos:\n";
   for (auto AIt : *this) {
     Value *BasePointer = AIt.first;
-    OS << "\tBase pointer: " << (BasePointer ? BasePointer->getName() : "<n/a>")
+    OS << "\n\tBase pointer: " << (BasePointer ? BasePointer->getName() : "<n/a>")
        << "\n";
     AIt.second->collectParameters(ParameterSet);
     AIt.second->print(OS);
@@ -590,7 +594,6 @@ void PACCSummary::ArrayInfo::print(raw_ostream &OS) const {
     OS << "\t\tMayWrite: " << MayWriteMap << "\n";
   if (MustWriteMap)
     OS << "\t\tMustWrite: " << MustWriteMap << "\n";
-  OS << "\n";
   if (!DimSizesBytes.empty()) {
     OS << "\t\tDimension sizes (Bytes):\n";
     for (const PVAff &DimSize : DimSizesBytes)

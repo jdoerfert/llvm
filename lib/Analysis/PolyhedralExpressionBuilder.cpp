@@ -13,6 +13,7 @@
 #include "llvm/Analysis/PolyhedralExpressionBuilder.h"
 
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/PolyhedralUtils.h"
 #include "llvm/Analysis/PolyhedralValueInfo.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Support/Debug.h"
@@ -37,6 +38,9 @@ PolyhedralValueInfoCache::~PolyhedralValueInfoCache() {
 }
 
 std::string PolyhedralValueInfoCache::getParameterNameForValue(Value &V) {
+  std::string CudaName = NVVMRewriter<PVAff>::getCudaIntrinsicName(&V);
+  if (!CudaName.empty())
+    return CudaName;
   if (V.hasName())
     return V.getName().str();
   return "p" + std::to_string(ParameterMap.size());

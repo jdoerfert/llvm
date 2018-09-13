@@ -67,7 +67,7 @@ struct NVVMRewriter : public PVRewriter<PVType> {
     return NVVMDIM_NONE;
   }
 
-  std::string getCudaIntrinsicName(Value *V) {
+  static std::string getCudaIntrinsicName(Value *V) {
     auto *Intr = dyn_cast<IntrinsicInst>(V);
     if (!Intr)
       return "";
