@@ -166,6 +166,13 @@ const PEXP *PACCSummary::findMultidimensionalViewSize(
       continue;
     }
 
+    auto BlockOffsetDim = NVVMRewriter<PVMap>::getBlockOffsetDim(I);
+    if (BlockOffsetDim != NVVMRewriter<PVMap>::NVVMDIM_NONE) {
+      DEBUG(dbgs() << "\tSkip block offset in dimension: " << BlockOffsetDim
+                   << "\n");
+      continue;
+    }
+
     DEBUG(dbgs() << "\tPossible multi dim view computation: " << *I << "\n");
     Value *Op0 = I->getOperand(0);
     Value *Op1 = I->getOperand(1);

@@ -28,15 +28,14 @@ struct NVVMRewriter : public PVRewriter<PVType> {
   };
 
   static constexpr unsigned NumNVVMDims = 4;
-  NVVMDim NVVMDims[NumNVVMDims] = {NVVMDIM_X, NVVMDIM_Y, NVVMDIM_Z, NVVMDIM_W};
   std::string NVVMDimNames[NumNVVMDims] = {"x", "y", "z", "w"};
 
-  bool isIntrinsic(Value *V, Intrinsic::ID IntrId) {
+  static bool isIntrinsic(Value *V, Intrinsic::ID IntrId) {
     auto *Intr = dyn_cast<IntrinsicInst>(V);
     return Intr && Intr->getIntrinsicID() == IntrId;
   }
 
-  NVVMDim getBlockOffsetDim(Value *V) {
+  static NVVMDim getBlockOffsetDim(Value *V) {
     auto *Inst = dyn_cast<Instruction>(V);
     if (!Inst)
       return NVVMDIM_NONE;
@@ -57,6 +56,8 @@ struct NVVMRewriter : public PVRewriter<PVType> {
         {Intrinsic::nvvm_read_ptx_sreg_ntid_w,
          Intrinsic::nvvm_read_ptx_sreg_ctaid_w}};
 
+    NVVMDim NVVMDims[NumNVVMDims] = {NVVMDIM_X, NVVMDIM_Y, NVVMDIM_Z,
+                                     NVVMDIM_W};
     for (unsigned d = 0; d < NumNVVMDims; d++) {
       auto IdPair = IdPairs[d];
       if ((isIntrinsic(Op0, IdPair.first) && isIntrinsic(Op1, IdPair.second)) ||
