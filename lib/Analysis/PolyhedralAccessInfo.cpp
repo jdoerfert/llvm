@@ -510,6 +510,11 @@ void PACCSummary::rewrite(PVRewriter<PVMap> &Rewriter) {
     Rewriter.rewrite(AI->MustWriteMap);
     Rewriter.rewrite(AI->MayReadMap);
     Rewriter.rewrite(AI->MustReadMap);
+    for (int i = 0; i < AMK_MAX; ++i) {
+      PVMap &M = AI->AccessMapsBytes[i];
+      if (M)
+        Rewriter.rewrite(M);
+    }
   }
 }
 
