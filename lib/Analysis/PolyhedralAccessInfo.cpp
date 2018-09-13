@@ -437,7 +437,7 @@ void PACCSummary::finalize(PolyhedralValueInfo &PI,
       auto CoeffGCD = PWA.findCoeffGCD();
       if (CoeffGCD.isInteger()) {
         int64_t CoeffGCDi64 = CoeffGCD.getIntegerVal();
-          ByteGCD = GreatestCommonDivisor64(ByteGCD, CoeffGCDi64);
+        ByteGCD = GreatestCommonDivisor64(ByteGCD, CoeffGCDi64);
       }
 
       // Smudge maps to width of element size of this particular instruction.

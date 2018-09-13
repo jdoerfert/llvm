@@ -1049,9 +1049,17 @@ isl_stat islFindCoeffGCD(isl_set *set, isl_aff *aff, void *user) {
   isl_set_free(set);
 
   int nDim = isl_aff_dim(aff, isl_dim_in);
-
   for (int dim = 0; dim < nDim; ++dim) {
     isl_val *val = isl_aff_get_coefficient_val(aff, isl_dim_in, dim);
+    if (info->gcd == nullptr) {
+      info->gcd = val;
+    } else {
+      info->gcd = isl_val_gcd(info->gcd, val);
+    }
+  }
+  nDim = isl_aff_dim(aff, isl_dim_param);
+  for (int dim = 0; dim < nDim; ++dim) {
+    isl_val *val = isl_aff_get_coefficient_val(aff, isl_dim_param, dim);
     if (info->gcd == nullptr) {
       info->gcd = val;
     } else {
